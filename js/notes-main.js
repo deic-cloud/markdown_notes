@@ -580,7 +580,12 @@
 		tagInput.addEventListener('change', function () { if (tagInput.value) { addEditorTag(tagInput.value); tagInput.value = ''; } });
 		// Math toolbar buttons: data-mb holds "before|after" delimiters.
 		document.querySelectorAll('#notes-math-bar button[data-mb]').forEach(function (b) {
-			b.addEventListener('click', function () { var parts = b.dataset.mb.split('|'); insertMath(parts[0], parts[1] || ''); });
+			b.addEventListener('click', function () {
+				var parts = b.dataset.mb.split('|');
+				var before = parts[0], after = parts[1] || '';
+				if (b.dataset.block) { before += '\n'; after = '\n' + after; } // block math on its own lines
+				insertMath(before, after);
+			});
 		});
 		Promise.all([loadTree(), loadTemplates()]).then(selectAll).catch(showError);
 	});

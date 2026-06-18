@@ -128,3 +128,13 @@
 .EasyMDEContainer .editor-preview code,
 .EasyMDEContainer .CodeMirror .cm-comment { background: var(--color-background-dark); }
 .EasyMDEContainer .editor-preview blockquote { border-left-color: var(--color-border); color: var(--color-text-maxcontrast); }
+/* NC globally sets list-style:none; restore real bullets/numbers in the rendered
+   markdown preview. */
+.EasyMDEContainer .editor-preview ul,
+.EasyMDEContainer .editor-preview-side ul { list-style: disc outside; padding-left: 1.6em; margin: .4em 0; }
+.EasyMDEContainer .editor-preview ol,
+.EasyMDEContainer .editor-preview-side ol { list-style: decimal outside; padding-left: 1.6em; margin: .4em 0; }
+.EasyMDEContainer .editor-preview li,
+.EasyMDEContainer .editor-preview-side li { display: list-item; margin: .15em 0; }
+.EasyMDEContainer .editor-preview ul ul,
+.EasyMDEContainer .editor-preview-side ul ul { list-style: circle outside; }
