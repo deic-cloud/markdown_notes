@@ -1,6 +1,7 @@
-Science note
-#### %date% — %me%
-
+---
+template_title: Science note — {{date}}
+template_tags: science_note
+---
 ## Abstract
 
 
@@ -11,4 +12,3 @@ $$
 E = mc^2
 $$
 
-tags: science_note

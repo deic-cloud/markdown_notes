@@ -56,21 +56,35 @@ class ApiController extends OCSController {
 	}
 
 	#[NoAdminRequired]
-	public function saveNote(string $path, string $title = '', string $body = '', array $tags = []): DataResponse {
-		return $this->run(function () use ($path, $title, $body, $tags) {
-			$note = $this->notesService->saveNote($this->uid(), $path, $title, $body, $tags);
+	public function saveNote(string $path, string $title = '', string $body = '', array $tags = [], string $is_todo = '', string $todo_due = ''): DataResponse {
+		return $this->run(function () use ($path, $title, $body, $tags, $is_todo, $todo_due) {
+			$todo = $is_todo === '' ? null : ($is_todo === '1' || $is_todo === 'true');
+			$note = $this->notesService->saveNote($this->uid(), $path, $title, $body, $tags, $todo, $todo_due);
 			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
 			return $note;
 		});
 	}
 
 	#[NoAdminRequired]
-	public function createNote(string $notebook = '', string $title = '', string $template = ''): DataResponse {
-		return $this->run(function () use ($notebook, $title, $template) {
-			$note = $this->notesService->createNote($this->uid(), $notebook, $title, $template);
+	public function createNote(string $notebook = '', string $title = '', string $template = '', string $is_todo = '', string $vars = ''): DataResponse {
+		return $this->run(function () use ($notebook, $title, $template, $is_todo, $vars) {
+			$varsArr = $vars !== '' ? (json_decode($vars, true) ?: []) : [];
+			$isTodo = $is_todo === '1' || $is_todo === 'true';
+			$note = $this->notesService->createNote($this->uid(), $notebook, $title, $template, $isTodo, $varsArr);
 			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
 			return $note;
 		});
+	}
+
+	#[NoAdminRequired]
+	public function setCompleted(string $path, string $completed = '1'): DataResponse {
+		return $this->run(fn () => $this->notesService->setCompleted(
+			$this->uid(), $path, $completed === '1' || $completed === 'true'));
+	}
+
+	#[NoAdminRequired]
+	public function templateInfo(string $path): DataResponse {
+		return $this->run(fn () => $this->notesService->templateInfo($this->uid(), $path));
 	}
 
 	#[NoAdminRequired]

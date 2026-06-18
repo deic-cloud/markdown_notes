@@ -23,6 +23,16 @@
 					<option value=""><?php p($l->t('Blank')); ?></option>
 				</select>
 				<button id="notes-new-note" type="button" class="primary"><span class="icon-add"></span> <?php p($l->t('New note')); ?></button>
+				<button id="notes-new-todo" type="button" title="<?php p($l->t('New to-do')); ?>">☐ <?php p($l->t('To-do')); ?></button>
+			</div>
+			<div class="notes-toolbar-row">
+				<label class="notes-sort-label" for="notes-sort"><?php p($l->t('Sort:')); ?></label>
+				<select id="notes-sort">
+					<option value="updated"><?php p($l->t('Updated')); ?></option>
+					<option value="created"><?php p($l->t('Created')); ?></option>
+					<option value="title"><?php p($l->t('Title')); ?></option>
+					<option value="due"><?php p($l->t('Due date')); ?></option>
+				</select>
 			</div>
 		</div>
 		<div id="notes-list-context"></div>
@@ -45,6 +55,13 @@
 				<input type="text" id="notes-tags-input" list="notes-tags-datalist" placeholder="<?php p($l->t('Add tag…')); ?>" />
 				<datalist id="notes-tags-datalist"></datalist>
 				<label class="notes-footer-toggle"><input type="checkbox" id="notes-show-footer" /> <?php p($l->t('Show metadata footer')); ?></label>
+			</div>
+			<div id="notes-todo-edit">
+				<label class="notes-todo-toggle"><input type="checkbox" id="notes-is-todo" /> <?php p($l->t('To-do')); ?></label>
+				<label id="notes-due-wrap" style="display:none;"><?php p($l->t('Due:')); ?>
+					<input type="datetime-local" id="notes-due" />
+					<button type="button" id="notes-due-clear" title="<?php p($l->t('Clear due date')); ?>">×</button>
+				</label>
 			</div>
 			<div id="notes-math-bar" class="notes-math-bar">
 				<span class="notes-math-label"><?php p($l->t('Math:')); ?></span>

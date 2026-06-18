@@ -5,7 +5,14 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [] };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated' };
+	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
+	function msToInput(ms) {
+		var d = new Date(Number(ms));
+		function pad(x) { return (x < 10 ? '0' : '') + x; }
+		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+	}
+	function inputToMs(v) { if (!v) { return ''; } var ms = new Date(v).getTime(); return isNaN(ms) ? '' : String(ms); }
 	var draggedPaths = [];
 	var draggedNotebook = '';
 
@@ -193,20 +200,55 @@
 			renderList();
 		}).catch(showError);
 	}
+	function dueMs(n) { var d = n.is_todo && n.todo_due ? Number(n.todo_due) : 0; return d > 0 ? d : 0; }
+	function sortNotes(list) {
+		var arr = list.slice();
+		switch (state.sortMode) {
+		case 'title':
+			arr.sort(function (a, b) { return (a.title || '').localeCompare(b.title || ''); }); break;
+		case 'created':
+			arr.sort(function (a, b) { return (Date.parse(b.created) || 0) - (Date.parse(a.created) || 0); }); break;
+		case 'due':
+			// To-dos with a due date first (earliest due first); everything else by updated.
+			arr.sort(function (a, b) {
+				var da = dueMs(a), db = dueMs(b);
+				if (da && db) { return da - db; }
+				if (da) { return -1; }
+				if (db) { return 1; }
+				return (b.modified || 0) - (a.modified || 0);
+			}); break;
+		default: // updated
+			arr.sort(function (a, b) { return (b.modified || 0) - (a.modified || 0); });
+		}
+		return arr;
+	}
+	function formatDue(ms) {
+		var d = new Date(ms);
+		function pad(x) { return (x < 10 ? '0' : '') + x; }
+		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+	}
 	function renderList() {
 		var ul = el('notes-list');
 		ul.innerHTML = '';
 		var q = (el('notes-search').value || '').toLowerCase();
-		state.notes.forEach(function (n) {
-			if (q && (n.title + ' ' + n.excerpt + ' ' + n.tags.join(' ')).toLowerCase().indexOf(q) < 0) { return; }
+		var visible = state.notes.filter(function (n) {
+			return !q || (n.title + ' ' + n.excerpt + ' ' + (n.tags || []).join(' ')).toLowerCase().indexOf(q) >= 0;
+		});
+		sortNotes(visible).forEach(function (n) {
 			var li = document.createElement('li');
 			li.dataset.path = n.path;
 			li.draggable = true;
 			if (n.path === state.notePath) { li.classList.add('active'); }
 			var checked = state.selected.indexOf(n.path) >= 0;
 			if (checked) { li.classList.add('selected'); }
-			var todo = n.is_todo ? '<span class="notes-todo-box">' + (n.todo_completed ? '☑' : '☐') + '</span> ' : '';
-			var titleCls = n.is_todo && n.todo_completed ? ' notes-todo-done' : '';
+			var done = n.is_todo && n.todo_completed;
+			var todo = n.is_todo ? '<span class="notes-todo-box" role="button" title="' + esc(t('markdown_notes', 'Mark done / not done')) + '">' + (done ? '☑' : '☐') + '</span> ' : '';
+			var titleCls = done ? ' notes-todo-done' : '';
+			var due = '';
+			if (dueMs(n)) {
+				var overdue = !done && dueMs(n) < Date.now();
+				due = '<div class="notes-item-due' + (overdue ? ' notes-overdue' : '') + '">⏰ ' + esc(formatDue(dueMs(n))) + '</div>';
+			}
 			var tags = (n.tags || []).map(function (tg) {
 				var c = normColor(state.tagColors[tg]);
 				return '<span class="notes-tag"' + (c ? ' style="background:' + c + ';color:#fff"' : '') + '>' + esc(tg) + '</span>';
@@ -216,17 +258,24 @@
 				'<div class="notes-item-main">' +
 					'<div class="notes-item-title' + titleCls + '">' + todo + esc(n.title) + '</div>' +
 					'<div class="notes-item-excerpt">' + esc(n.excerpt) + '</div>' +
+					due +
 					(tags ? '<div class="notes-item-tags">' + tags + '</div>' : '') +
 				'</div>';
 			var cb = li.querySelector('.notes-item-check');
 			cb.addEventListener('click', function (e) { e.stopPropagation(); });
 			cb.addEventListener('change', function () { toggleSelect(n.path, cb.checked); });
-			li.addEventListener('click', function (e) { if (e.target !== cb) { openNote(n.path); } });
+			var box = li.querySelector('.notes-todo-box');
+			if (box) { box.addEventListener('click', function (e) { e.stopPropagation(); toggleCompleted(n.path, !done); }); }
+			li.addEventListener('click', function (e) { if (e.target !== cb && e.target !== box) { openNote(n.path); } });
 			li.addEventListener('dragstart', function (e) { onNoteDragStart(e, n.path, li); });
 			li.addEventListener('dragend', function () { li.classList.remove('dragging'); });
 			ul.appendChild(li);
 		});
 		updateSelectionUI();
+	}
+	function toggleCompleted(path, completed) {
+		post('/note/complete', p('path', path, 'completed', completed ? '1' : '0'))
+			.then(function () { return refreshAfterChange(); }).catch(showError);
 	}
 
 	// ── Editor ────────────────────────────────────────────────────────────────
@@ -296,10 +345,19 @@
 			state.editorTags = (note.tags || []).slice();
 			el('notes-tags-input').value = '';
 			renderTagChips();
+			applyTodoFields(note.meta);
 			renderFooter(note.meta);
 			el('notes-status').textContent = '';
 			renderList();
 		}).catch(showError);
+	}
+	// Reflect the note's to-do state into the editor controls.
+	function applyTodoFields(meta) {
+		meta = meta || {};
+		var isTodo = !!meta.is_todo && meta.is_todo !== '0';
+		el('notes-is-todo').checked = isTodo;
+		el('notes-due').value = (isTodo && meta.todo_due && Number(meta.todo_due) > 0) ? msToInput(meta.todo_due) : '';
+		el('notes-due-wrap').style.display = isTodo ? 'inline-flex' : 'none';
 	}
 	function renderFooter(meta) {
 		var legend = '# id: stable note id  ·  created_time/updated_time  ·  is_todo/todo_due/todo_completed  ·  tags\n';
@@ -356,11 +414,14 @@
 
 	function saveNote() {
 		if (!state.notePath) { return; }
-		var params = p('path', state.notePath, 'title', el('notes-title').value, 'body', mde.value());
+		var isTodo = el('notes-is-todo').checked;
+		var params = p('path', state.notePath, 'title', el('notes-title').value, 'body', mde.value(),
+			'is_todo', isTodo ? '1' : '0', 'todo_due', isTodo ? inputToMs(el('notes-due').value) : '');
 		state.editorTags.forEach(function (t) { params.append('tags[]', t); });
 		el('notes-status').textContent = 'Saving…';
 		post('/note/save', params).then(function (note) {
 			el('notes-status').textContent = 'Saved ✓';
+			applyTodoFields(note.meta);
 			renderFooter(note.meta);
 			setTimeout(function () { el('notes-status').textContent = ''; }, 1500);
 			return refreshAfterChange();
@@ -378,13 +439,44 @@
 	function refreshAfterChange() { return Promise.all([loadList(), loadTree()]); }
 
 	// ── Create ────────────────────────────────────────────────────────────────
-	function newNote() {
-		var title = prompt(t('markdown_notes', 'Note title'), t('markdown_notes', 'New note'));
-		if (title === null) { return; }
+	function newNote() { createFromTemplate(false); }
+	function newTodo() { createFromTemplate(true); }
+	// Create a note or to-do, optionally from a template. Templates may define a
+	// title (template_title) and custom variables we prompt for (Joplin-style).
+	function createFromTemplate(isTodo) {
+		var template = el('notes-template').value || '';
 		var notebook = state.mode === 'notebook' ? state.notebook : '';
-		var params = p('notebook', notebook, 'title', title, 'template', el('notes-template').value || '');
-		post('/note/create', params).then(function (note) {
-			return refreshAfterChange().then(function () { return openNote(note.path); });
+		function send(title, vars) {
+			var params = p('notebook', notebook, 'title', title || '', 'template', template,
+				'is_todo', isTodo ? '1' : '0', 'vars', vars ? JSON.stringify(vars) : '');
+			post('/note/create', params).then(function (note) {
+				return refreshAfterChange().then(function () { return openNote(note.path); });
+			}).catch(showError);
+		}
+		function askTitle() {
+			return prompt(t('markdown_notes', isTodo ? 'To-do title' : 'Note title'),
+				t('markdown_notes', isTodo ? 'New to-do' : 'New note'));
+		}
+		if (!template) {
+			var title = askTitle();
+			if (title === null) { return; }
+			send(title, null);
+			return;
+		}
+		get('/template/info', p('path', template)).then(function (info) {
+			var vars = {};
+			var list = info.variables || [];
+			for (var i = 0; i < list.length; i++) {
+				var v = list[i];
+				var label = v.label || v.name;
+				if (v.type === 'dropdown' && v.options && v.options.length) { label += ' (' + v.options.join(' / ') + ')'; }
+				var ans = prompt(label, '');
+				if (ans === null) { return; } // cancelled
+				vars[v.name] = ans;
+			}
+			var title = '';
+			if (!info.title) { title = askTitle(); if (title === null) { return; } } // template sets no title → ask
+			send(title, vars);
 		}).catch(showError);
 	}
 	function newNotebook() {
@@ -588,6 +680,13 @@
 		if (nbHeader) { makeDropTarget(nbHeader, function () { if (draggedNotebook) { dropMoveNotebook(draggedNotebook, ''); } }); }
 		el('notes-new-notebook').addEventListener('click', newNotebook);
 		el('notes-new-note').addEventListener('click', newNote);
+		el('notes-new-todo').addEventListener('click', newTodo);
+		el('notes-sort').addEventListener('change', function () { state.sortMode = this.value; renderList(); });
+		// To-do toggle reveals the due-date picker; clearing the due date.
+		el('notes-is-todo').addEventListener('change', function () {
+			el('notes-due-wrap').style.display = this.checked ? 'inline-flex' : 'none';
+		});
+		el('notes-due-clear').addEventListener('click', function () { el('notes-due').value = ''; });
 		el('notes-save').addEventListener('click', saveNote);
 		// Ctrl+S (Linux/Win) / Cmd+S (Mac) saves the open note instead of the
 		// browser's "save page" dialog. Document-level so it works whether focus

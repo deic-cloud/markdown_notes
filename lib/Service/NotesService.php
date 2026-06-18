@@ -172,6 +172,7 @@ class NotesService {
 				'todo_completed' => !empty($meta['todo_completed']) && $meta['todo_completed'] !== '0',
 				'excerpt'        => $this->excerpt($parsed['body']),
 				'modified'       => $file->getMTime(),
+				'created'        => $meta['created_time'] ?? '',
 			];
 		}
 	}
@@ -192,8 +193,12 @@ class NotesService {
 		];
 	}
 
-	/** Save title/body/tags into an existing note, preserving unmanaged footer keys. */
-	public function saveNote(string $uid, string $rel, string $title, string $body, array $tags): array {
+	/**
+	 * Save title/body/tags into an existing note, preserving unmanaged footer
+	 * keys. $isTodo null = leave to-do state untouched; true/false converts the
+	 * note to/from a to-do. $todoDue is epoch-ms (Joplin), '' clears the due date.
+	 */
+	public function saveNote(string $uid, string $rel, string $title, string $body, array $tags, ?bool $isTodo = null, string $todoDue = ''): array {
 		$file = $this->relNode($uid, $rel);
 		$parsed = NoteFormat::parse($this->readContent($file));
 		$meta = $parsed['meta'];
@@ -202,7 +207,32 @@ class NotesService {
 		if (empty($meta['id'])) {
 			$meta = ['id' => $this->newId(), 'created_time' => $meta['updated_time']] + $meta;
 		}
+		if ($isTodo !== null) {
+			if ($isTodo) {
+				$meta['is_todo'] = '1';
+				$meta['todo_due'] = $todoDue !== '' ? $todoDue : null; // null → key dropped
+			} else {
+				// No longer a to-do: drop all to-do footer keys.
+				$meta['is_todo'] = null;
+				$meta['todo_due'] = null;
+				$meta['todo_completed'] = null;
+			}
+		}
 		$file->putContent(NoteFormat::serialize($title, $body, $meta));
+		return $this->getNote($uid, $rel);
+	}
+
+	/** Mark a to-do done/undone. Joplin stores todo_completed as epoch-ms (0/absent = open). */
+	public function setCompleted(string $uid, string $rel, bool $completed): array {
+		$file = $this->relNode($uid, $rel);
+		$parsed = NoteFormat::parse($this->readContent($file));
+		$meta = $parsed['meta'];
+		if (empty($meta['is_todo'])) {
+			$meta['is_todo'] = '1'; // completing implies it's a to-do
+		}
+		$meta['todo_completed'] = $completed ? (string)$this->nowMs() : null;
+		$meta['updated_time'] = $this->now();
+		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
 		return $this->getNote($uid, $rel);
 	}
 
@@ -232,19 +262,35 @@ class NotesService {
 		return $this->getNote($uid, $rel);
 	}
 
-	public function createNote(string $uid, string $notebookRel, string $title, string $templateRel = ''): array {
+	/**
+	 * Create a note (or to-do). A template may set the title (template_title),
+	 * tags and body; $vars supplies values for the template's custom variables.
+	 *
+	 * @param array<string,string> $vars
+	 */
+	public function createNote(string $uid, string $notebookRel, string $title, string $templateRel = '', bool $isTodo = false, array $vars = []): array {
 		$parent = $this->relNode($uid, $notebookRel);
 		if (!($parent instanceof Folder)) {
 			throw new NotesException('Not a notebook.');
 		}
-		$title = trim($title) !== '' ? trim($title) : 'New note';
 		$body = '';
 		$tags = [];
+		$tplTitle = '';
 		if ($templateRel !== '') {
-			[$body, $tags] = $this->applyTemplate($uid, $templateRel);
+			$tpl = $this->applyTemplate($uid, $templateRel, $vars);
+			$body = $tpl['body'];
+			$tags = $tpl['tags'];
+			$tplTitle = $tpl['title'];
+		}
+		$title = trim($title);
+		if ($title === '') {
+			$title = $tplTitle !== '' ? $tplTitle : 'New note';
 		}
 		$now = $this->now();
 		$meta = ['id' => $this->newId(), 'created_time' => $now, 'updated_time' => $now];
+		if ($isTodo) {
+			$meta['is_todo'] = '1';
+		}
 		$meta = NoteFormat::withTags($meta, $tags);
 
 		$fname = $this->uniqueName($parent, $this->sanitizeName($title) . '.md', false);
@@ -287,40 +333,37 @@ class NotesService {
 			if ($file instanceof Folder || substr($name, -3) !== '.md') {
 				continue;
 			}
-			$lines = preg_split('/\r\n|\r|\n/', $this->readContent($file));
-			$out[] = ['path' => 'Templates/' . $name, 'title' => $lines[0] ?? substr($name, 0, -3)];
+			$tpl = TemplateFormat::parse($this->readContent($file));
+			// Render built-ins for a friendly dropdown label (no literal {{date}}).
+			$title = $tpl['title'] !== '' ? TemplateFormat::render($tpl['title'], [], time()) : substr($name, 0, -3);
+			$out[] = ['path' => 'Templates/' . $name, 'title' => $title, 'hasVars' => !empty($tpl['variables'])];
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['title'], $b['title']));
 		return $out;
 	}
 
-	/** @return array{0: string, 1: string[]} body and tags from a template. */
-	private function applyTemplate(string $uid, string $templateRel): array {
-		$file = $this->relNode($uid, $templateRel);
-		$lines = preg_split('/\r\n|\r|\n/', $this->readContent($file)) ?: [];
-		array_shift($lines); // drop the template's own title line
-		$tags = [];
-		foreach ($lines as $i => $line) {
-			if (preg_match('/^tags:\s*(.*)$/', $line, $m)) {
-				$tags = array_values(array_filter(array_map('trim', explode(',', $m[1]))));
-				unset($lines[$i]);
-			}
-		}
-		$body = $this->substituteVars($uid, implode("\n", $lines));
-		return [trim($body, "\n"), $tags];
+	/** Front matter of a template: its (raw) title, tags and custom variables to prompt for. */
+	public function templateInfo(string $uid, string $templateRel): array {
+		$tpl = TemplateFormat::parse($this->readContent($this->relNode($uid, $templateRel)));
+		return ['title' => $tpl['title'], 'tags' => $tpl['tags'], 'variables' => $tpl['variables']];
 	}
 
-	private function substituteVars(string $uid, string $text): string {
-		$user = $this->userManager->get($uid);
-		$vars = [
-			'%date%' => date('Y-m-d'),
-			'%me%'   => $user ? $user->getDisplayName() : $uid,
-			'%place%' => '', // geonames lookup deferred (optional/best-effort, Phase 1+)
-			'{{date}}' => date('Y-m-d'),
-			'{{me}}'   => $user ? $user->getDisplayName() : $uid,
-			'{{place}}' => '',
+	/**
+	 * Render a template into title/body/tags, substituting built-in date/time
+	 * variables and the user-supplied custom-variable values.
+	 *
+	 * @param array<string,string> $vars
+	 * @return array{title: string, body: string, tags: string[]}
+	 */
+	private function applyTemplate(string $uid, string $templateRel, array $vars = []): array {
+		$tpl = TemplateFormat::parse($this->readContent($this->relNode($uid, $templateRel)));
+		$now = time();
+		$tagsStr = TemplateFormat::render($tpl['tags'], $vars, $now);
+		return [
+			'title' => TemplateFormat::render($tpl['title'], $vars, $now),
+			'body'  => trim(TemplateFormat::render($tpl['body'], $vars, $now), "\n"),
+			'tags'  => array_values(array_filter(array_map('trim', explode(',', $tagsStr)))),
 		];
-		return strtr($text, $vars);
 	}
 
 	/** Distinct tags across all notes (for the tag filter). @return string[] */
@@ -416,5 +459,10 @@ class NotesService {
 
 	private function now(): string {
 		return gmdate('Y-m-d\TH:i:s') . '.000Z';
+	}
+
+	/** Current time as Joplin-style epoch milliseconds. */
+	private function nowMs(): int {
+		return (int)round(microtime(true) * 1000);
 	}
 }

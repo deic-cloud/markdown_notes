@@ -1,5 +1,11 @@
-Laboratory note
-#### %place%, %date% — %me%
+---
+template_title: Laboratory note — {{date}}
+template_tags: lab_note
+location:
+  label: Location
+  type: text
+---
+#### {{location}}, {{date}}
 
 ### Measurements
 
@@ -15,4 +21,3 @@ $\ce{Hg^2+ ->[I-] HgI2 ->[I-] [Hg^{II}I4]^2-}$
 
 $C_p[\ce{H2O(l)}] = \pu{75.3 J // mol K}$
 
-tags: lab_note
