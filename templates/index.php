@@ -46,6 +46,14 @@
 				<datalist id="notes-tags-datalist"></datalist>
 				<label class="notes-footer-toggle"><input type="checkbox" id="notes-show-footer" /> <?php p($l->t('Show metadata footer')); ?></label>
 			</div>
+			<div id="notes-math-bar" class="notes-math-bar">
+				<span class="notes-math-label"><?php p($l->t('Math:')); ?></span>
+				<button type="button" data-mb="$|$" title="<?php p($l->t('Inline math: $…$')); ?>">$x$</button>
+				<button type="button" data-mb="$$|$$" title="<?php p($l->t('Display (block) math: $$…$$')); ?>">$$x$$</button>
+				<button type="button" data-mb="\ce{|}" title="<?php p($l->t('Chemistry (mhchem): \\ce{…}')); ?>">\ce{ }</button>
+				<button type="button" data-mb="\pu{|}" title="<?php p($l->t('Physical units (mhchem): \\pu{…}')); ?>">\pu{ }</button>
+				<span class="notes-math-hint"><?php p($l->t('block = own line · use a_{b} for nested subscripts')); ?></span>
+			</div>
 			<textarea id="notes-editor"></textarea>
 			<pre id="notes-footer-view" style="display:none;"></pre>
 		</div>

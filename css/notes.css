@@ -87,6 +87,14 @@
    the notebook/folder drop highlight. */
 .notes-tag-pill.notes-drop-target { outline-offset: 2px; }
 #notes-nb-header.notes-drop-target { outline-offset: -1px; background: var(--color-primary-element-light); }
+/* Small math/chemistry insert toolbar above the editor */
+.notes-math-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
+.notes-math-label { color: var(--color-text-maxcontrast); font-size: .85em; margin-right: 2px; }
+.notes-math-bar button {
+	min-height: 0; height: auto; padding: 2px 8px; margin: 0; font-size: .8em;
+	font-family: monospace; line-height: 1.4;
+}
+.notes-math-hint { color: var(--color-text-maxcontrast); font-size: .75em; margin-left: 6px; }
 #notes-footer-view { background: var(--color-background-dark); padding: 8px 12px; border-radius: var(--border-radius);
 	font-size: .85em; white-space: pre-wrap; margin: 0 0 8px; }
 .EasyMDEContainer { flex: 1; display: flex; flex-direction: column; min-height: 0; }

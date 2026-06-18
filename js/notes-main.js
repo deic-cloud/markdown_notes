@@ -22,7 +22,9 @@
 	};
 	(function () {
 		var s = document.createElement('script');
-		s.src = (OC.webroot || '') + '/apps/markdown_notes/3rdparty/mathjax/tex-mml-chtml.js';
+		// Full build: mhchem (\ce, \pu) is inlined, so \ce{} works offline without
+		// MathJax trying to lazy-load an extension we don't host.
+		s.src = (OC.webroot || '') + '/apps/markdown_notes/3rdparty/mathjax/tex-chtml-full.js';
 		s.async = true;
 		document.head.appendChild(s);
 	})();
@@ -423,6 +425,19 @@
 			}).catch(showError);
 	}
 
+	// ── Math toolbar: wrap selection (or insert empty delimiters) ─────────────
+	function insertMath(before, after) {
+		if (!mde) { return; }
+		var cm = mde.codemirror;
+		var sel = cm.getSelection();
+		cm.replaceSelection(before + sel + after);
+		if (!sel) {
+			var pos = cm.getCursor();
+			cm.setCursor(pos.line, pos.ch - after.length); // cursor between delimiters
+		}
+		cm.focus();
+	}
+
 	// ── Selection + drag & drop ───────────────────────────────────────────────
 	function toggleSelect(path, checked) {
 		var i = state.selected.indexOf(path);
@@ -545,6 +560,14 @@
 		el('notes-new-notebook').addEventListener('click', newNotebook);
 		el('notes-new-note').addEventListener('click', newNote);
 		el('notes-save').addEventListener('click', saveNote);
+		// Ctrl+S (Linux/Win) / Cmd+S (Mac) saves the open note instead of the
+		// browser's "save page" dialog. Document-level so it works whether focus
+		// is in the editor, the title field, or anywhere on the page.
+		document.addEventListener('keydown', function (e) {
+			if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 's' || e.key === 'S')) {
+				if (state.notePath) { e.preventDefault(); saveNote(); }
+			}
+		});
 		el('notes-delete').addEventListener('click', deleteNote);
 		el('notes-search').addEventListener('input', renderList);
 		el('notes-show-footer').addEventListener('change', function () {
@@ -555,6 +578,10 @@
 			if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addEditorTag(tagInput.value); tagInput.value = ''; }
 		});
 		tagInput.addEventListener('change', function () { if (tagInput.value) { addEditorTag(tagInput.value); tagInput.value = ''; } });
+		// Math toolbar buttons: data-mb holds "before|after" delimiters.
+		document.querySelectorAll('#notes-math-bar button[data-mb]').forEach(function (b) {
+			b.addEventListener('click', function () { var parts = b.dataset.mb.split('|'); insertMath(parts[0], parts[1] || ''); });
+		});
 		Promise.all([loadTree(), loadTemplates()]).then(selectAll).catch(showError);
 	});
 })();
