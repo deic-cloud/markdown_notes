@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Controller;
+namespace OCA\MarkdownNotes\Controller;
 
-use OCA\Notes\Service\NotesException;
-use OCA\Notes\Service\NotesService;
-use OCA\Notes\Service\SystemTagSync;
+use OCA\MarkdownNotes\Service\NotesException;
+use OCA\MarkdownNotes\Service\NotesService;
+use OCA\MarkdownNotes\Service\SystemTagSync;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;

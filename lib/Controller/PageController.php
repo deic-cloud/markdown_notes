@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Controller;
+namespace OCA\MarkdownNotes\Controller;
 
-use OCA\Notes\Service\NotesService;
+use OCA\MarkdownNotes\Service\NotesService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
@@ -34,11 +34,11 @@ class PageController extends Controller {
 				// Non-fatal: the page still loads if seeding fails.
 			}
 		}
-		Util::addStyle('notes', 'font-awesome');
-		Util::addStyle('notes', 'easymde.min');
-		Util::addStyle('notes', 'notes');
-		Util::addScript('notes', 'easymde.min');
-		Util::addScript('notes', 'notes-main');
-		return new TemplateResponse('notes', 'index');
+		Util::addStyle('markdown_notes', 'font-awesome');
+		Util::addStyle('markdown_notes', 'easymde.min');
+		Util::addStyle('markdown_notes', 'notes');
+		Util::addScript('markdown_notes', 'easymde.min');
+		Util::addScript('markdown_notes', 'notes-main');
+		return new TemplateResponse('markdown_notes', 'index');
 	}
 }

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Service;
+namespace OCA\MarkdownNotes\Service;
 
 use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
@@ -31,12 +31,12 @@ class NotesService {
 	}
 
 	public function notesFolderName(string $uid): string {
-		$name = $this->config->getUserValue($uid, 'notes', 'notesdir', 'Notes');
+		$name = $this->config->getUserValue($uid, 'markdown_notes', 'notesdir', 'Notes');
 		return trim($name, '/') ?: 'Notes';
 	}
 
 	public function setNotesFolderName(string $uid, string $name): void {
-		$this->config->setUserValue($uid, 'notes', 'notesdir', trim($name, '/') ?: 'Notes');
+		$this->config->setUserValue($uid, 'markdown_notes', 'notesdir', trim($name, '/') ?: 'Notes');
 	}
 
 	private function notesFolder(string $uid): Folder {

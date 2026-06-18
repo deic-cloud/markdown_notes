@@ -3,7 +3,7 @@
 (function () {
 	'use strict';
 
-	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/notes/api/v1';
+	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
 	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [] };
 	var draggedPaths = [];
@@ -22,7 +22,7 @@
 	};
 	(function () {
 		var s = document.createElement('script');
-		s.src = (OC.webroot || '') + '/apps/notes/3rdparty/mathjax/tex-mml-chtml.js';
+		s.src = (OC.webroot || '') + '/apps/markdown_notes/3rdparty/mathjax/tex-mml-chtml.js';
 		s.async = true;
 		document.head.appendChild(s);
 	})();
@@ -147,12 +147,12 @@
 		if (state.mode === 'tag') { params = p('recursive', '1', 'tag', state.tag); }
 		else if (state.mode === 'all') { params = p('recursive', '1'); }
 		else { params = p('notebook', state.notebook); }
-		var ctx = state.mode === 'all' ? t('notes', 'All notes') : (state.mode === 'tag' ? '# ' + state.tag : state.notebook);
+		var ctx = state.mode === 'all' ? t('markdown_notes', 'All notes') : (state.mode === 'tag' ? '# ' + state.tag : state.notebook);
 		var cEl = el('notes-list-context');
 		cEl.innerHTML = '';
 		var lbl = el2('label', 'notes-selectall');
 		var m = document.createElement('input');
-		m.type = 'checkbox'; m.id = 'notes-master-check'; m.title = t('notes', 'Select all');
+		m.type = 'checkbox'; m.id = 'notes-master-check'; m.title = t('markdown_notes', 'Select all');
 		m.addEventListener('change', toggleSelectAll);
 		lbl.appendChild(m);
 		lbl.appendChild(document.createTextNode(' ' + ctx));
@@ -181,7 +181,7 @@
 				return '<span class="notes-tag"' + (c ? ' style="background:' + c + ';color:#fff"' : '') + '>' + esc(tg) + '</span>';
 			}).join('');
 			li.innerHTML =
-				'<input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' title="' + esc(t('notes', 'Select')) + '" />' +
+				'<input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' title="' + esc(t('markdown_notes', 'Select')) + '" />' +
 				'<div class="notes-item-main">' +
 					'<div class="notes-item-title' + titleCls + '">' + todo + esc(n.title) + '</div>' +
 					'<div class="notes-item-excerpt">' + esc(n.excerpt) + '</div>' +
@@ -212,9 +212,9 @@
 			sideBySideFullscreen: false,
 			toolbar: ['bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list',
 				'|', 'link',
-				{ name: 'image', className: 'fa fa-image', title: t('notes', 'Insert image'), action: function () { pickImage(); } },
+				{ name: 'image', className: 'fa fa-image', title: t('markdown_notes', 'Insert image'), action: function () { pickImage(); } },
 				'table', 'code', '|',
-				{ name: 'viewmode', className: 'fa fa-edit notes-vm', title: t('notes', 'View: edit / side-by-side / rendered'), action: function () { cycleView(); } },
+				{ name: 'viewmode', className: 'fa fa-edit notes-vm', title: t('markdown_notes', 'View: edit / side-by-side / rendered'), action: function () { cycleView(); } },
 				'guide'],
 			// Render markdown, then typeset LaTeX/mhchem with MathJax. EasyMDE sets
 			// the returned HTML synchronously, so we typeset on the next tick once
@@ -245,12 +245,12 @@
 		// button carries just the marker (+ active).
 		var button = marker.tagName === 'BUTTON' ? marker : (marker.closest ? marker.closest('button') : marker.parentNode) || marker;
 		var icon = state.viewMode === 2 ? 'fa-eye' : (state.viewMode === 1 ? 'fa-columns' : 'fa-edit');
-		var label = state.viewMode === 2 ? t('notes', 'Rendered') : (state.viewMode === 1 ? t('notes', 'Side by side') : t('notes', 'Edit'));
+		var label = state.viewMode === 2 ? t('markdown_notes', 'Rendered') : (state.viewMode === 1 ? t('markdown_notes', 'Side by side') : t('markdown_notes', 'Edit'));
 		button.className = 'notes-vm' + (state.viewMode ? ' active' : '');
 		var i = button.querySelector('i');
 		if (!i) { i = document.createElement('i'); button.appendChild(i); }
 		i.className = 'fa ' + icon;
-		button.title = t('notes', 'View') + ': ' + label;
+		button.title = t('markdown_notes', 'View') + ': ' + label;
 	}
 
 	function openNote(path) {
@@ -286,7 +286,7 @@
 			if (c) { chip.style.background = c; }
 			chip.appendChild(document.createTextNode(tg));
 			var x = el2('button', '');
-			x.type = 'button'; x.textContent = '×'; x.title = t('notes', 'Remove tag');
+			x.type = 'button'; x.textContent = '×'; x.title = t('markdown_notes', 'Remove tag');
 			x.addEventListener('click', function () { removeEditorTag(tg); });
 			chip.appendChild(x);
 			box.appendChild(chip);
@@ -336,7 +336,7 @@
 		}).catch(showError);
 	}
 	function deleteNote() {
-		if (!state.notePath || !confirm(t('notes', 'Delete this note?'))) { return; }
+		if (!state.notePath || !confirm(t('markdown_notes', 'Delete this note?'))) { return; }
 		post('/note/delete', p('path', state.notePath)).then(function () {
 			state.notePath = null;
 			el('notes-editor-wrap').style.display = 'none';
@@ -348,7 +348,7 @@
 
 	// ── Create ────────────────────────────────────────────────────────────────
 	function newNote() {
-		var title = prompt(t('notes', 'Note title'), t('notes', 'New note'));
+		var title = prompt(t('markdown_notes', 'Note title'), t('markdown_notes', 'New note'));
 		if (title === null) { return; }
 		var notebook = state.mode === 'notebook' ? state.notebook : '';
 		var params = p('notebook', notebook, 'title', title, 'template', el('notes-template').value || '');
@@ -357,7 +357,7 @@
 		}).catch(showError);
 	}
 	function newNotebook() {
-		var name = prompt(t('notes', 'Notebook name'));
+		var name = prompt(t('markdown_notes', 'Notebook name'));
 		if (!name) { return; }
 		var parent = state.mode === 'notebook' ? state.notebook : '';
 		post('/notebook/create', p('parent', parent, 'name', name)).then(loadTree).catch(showError);
@@ -386,7 +386,7 @@
 	function pickImage() {
 		if (window.OC && OC.dialogs && OC.dialogs.filepicker) {
 			var img = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp', 'image/bmp'];
-			OC.dialogs.filepicker(t('notes', 'Insert image'), insertImageFromPath, false, img, true,
+			OC.dialogs.filepicker(t('markdown_notes', 'Insert image'), insertImageFromPath, false, img, true,
 				(OC.dialogs.FILEPICKER_TYPE_CHOOSE || 1));
 		} else {
 			pickAndUpload();
@@ -412,7 +412,7 @@
 		var name = (file.name || 'image').replace(/[\\/]/g, '_');
 		var url = attDir + '/' + encodeURIComponent(name);
 		var hdr = { requesttoken: OC.requestToken };
-		el('notes-status').textContent = t('notes', 'Uploading…');
+		el('notes-status').textContent = t('markdown_notes', 'Uploading…');
 		fetch(attDir, { method: 'MKCOL', headers: hdr })
 			.catch(function () {})
 			.then(function () { return fetch(url, { method: 'PUT', headers: hdr, body: file }); })
@@ -447,9 +447,9 @@
 		var bar = el('notes-selection-bar');
 		if (state.selected.length) {
 			bar.style.display = 'flex';
-			bar.innerHTML = '<strong>' + state.selected.length + '</strong> ' + esc(t('notes', 'selected'))
-				+ ' <span class="notes-sel-hint">' + esc(t('notes', '— drag onto a notebook or tag')) + '</span>'
-				+ '<a href="#" class="notes-sel-clear">' + esc(t('notes', 'Clear')) + '</a>';
+			bar.innerHTML = '<strong>' + state.selected.length + '</strong> ' + esc(t('markdown_notes', 'selected'))
+				+ ' <span class="notes-sel-hint">' + esc(t('markdown_notes', '— drag onto a notebook or tag')) + '</span>'
+				+ '<a href="#" class="notes-sel-clear">' + esc(t('markdown_notes', 'Clear')) + '</a>';
 			bar.querySelector('.notes-sel-clear').addEventListener('click', function (e) { e.preventDefault(); state.selected = []; updateSelectionUI(); });
 		} else {
 			bar.style.display = 'none';

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Service;
+namespace OCA\MarkdownNotes\Service;
 
 use OCP\Files\IRootFolder;
 use OCP\Files\Node;
@@ -68,7 +68,7 @@ class SystemTagSync {
 				unset(self::$inFlight[$fileid]);
 			}
 		} catch (\Throwable $e) {
-			$this->logger->warning('notes: footer→systemtags failed for ' . $fileid . ': ' . $e->getMessage(), ['app' => 'notes']);
+			$this->logger->warning('notes: footer→systemtags failed for ' . $fileid . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
 		}
 	}
 
@@ -99,7 +99,7 @@ class SystemTagSync {
 			$meta['updated_time'] = gmdate('Y-m-d\TH:i:s') . '.000Z';
 			$node->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
 		} catch (\Throwable $e) {
-			$this->logger->warning('notes: systemtags→footer failed for ' . $fileid . ': ' . $e->getMessage(), ['app' => 'notes']);
+			$this->logger->warning('notes: systemtags→footer failed for ' . $fileid . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
 		}
 	}
 
@@ -137,7 +137,7 @@ class SystemTagSync {
 				}
 			}
 		} catch (\Throwable $e) {
-			$this->logger->warning('notes: listing systemtags failed: ' . $e->getMessage(), ['app' => 'notes']);
+			$this->logger->warning('notes: listing systemtags failed: ' . $e->getMessage(), ['app' => 'markdown_notes']);
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
 		return $out;

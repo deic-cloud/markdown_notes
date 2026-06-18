@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Service;
+namespace OCA\MarkdownNotes\Service;
 
 /**
  * Parse and serialise a note's on-disk form — the Joplin-compatible layout:

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\Notes\Listener;
+namespace OCA\MarkdownNotes\Listener;
 
-use OCA\Notes\Service\SystemTagSync;
+use OCA\MarkdownNotes\Service\SystemTagSync;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\SystemTag\MapperEvent;
