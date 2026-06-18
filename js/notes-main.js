@@ -28,6 +28,23 @@
 		s.async = true;
 		document.head.appendChild(s);
 	})();
+	// Protect LaTeX/chem spans from the markdown step, then restore them so
+	// MathJax can typeset the raw source. This lets a display block ($$…$$ / \[…\])
+	// contain blank lines (markdown would otherwise split it across paragraphs)
+	// and keeps markdown specials (_, *) literal inside math.
+	function renderMarkdownWithMath(text) {
+		var store = [];
+		function stash(m) { store.push(m); return '@@MJX' + (store.length - 1) + '@@'; }
+		var protectedText = text
+			.replace(/\$\$[\s\S]+?\$\$/g, stash)                                   // $$ … $$ display (blank lines OK)
+			.replace(/\\\[[\s\S]+?\\\]/g, stash)                                    // \[ … \] display
+			.replace(/\\\([\s\S]+?\\\)/g, stash)                                    // \( … \) inline
+			.replace(/(^|[^\\$])\$([^\n$]+?)\$/g, function (m, pre, inner) {         // $ … $ inline
+				return pre + stash('$' + inner + '$');
+			});
+		var html = (mde && mde.markdown) ? mde.markdown(protectedText) : protectedText;
+		return html.replace(/@@MJX(\d+)@@/g, function (m, i) { return store[Number(i)]; });
+	}
 	function typesetMath(elem) {
 		if (window.MathJax && window.MathJax.typesetPromise) {
 			try { window.MathJax.typesetClear && window.MathJax.typesetClear([elem]); } catch (e) { /* ignore */ }
@@ -222,7 +239,7 @@
 			// the returned HTML synchronously, so we typeset on the next tick once
 			// the preview element is populated.
 			previewRender: function (plainText, preview) {
-				var html = (mde && mde.markdown) ? mde.markdown(plainText) : plainText;
+				var html = renderMarkdownWithMath(plainText);
 				setTimeout(function () { typesetMath(preview); }, 0);
 				return html;
 			},
