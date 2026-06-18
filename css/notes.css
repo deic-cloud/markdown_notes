@@ -1,0 +1,122 @@
+/* ── Navigation ───────────────────────────────────────────────────────────── */
+#app-navigation .notes-nav-new { padding: 8px; }
+#app-navigation .notes-nav-new button { width: 100%; }
+#app-navigation .notes-nav-section {
+	padding: 12px 12px 4px; font-size: .8em; text-transform: uppercase;
+	color: var(--color-text-maxcontrast); font-weight: 600;
+}
+#app-navigation ul li > a {
+	display: block; padding: 8px 12px; color: var(--color-main-text);
+	border-radius: var(--border-radius); cursor: pointer; white-space: nowrap;
+	overflow: hidden; text-overflow: ellipsis;
+}
+#app-navigation ul li.active > a,
+#app-navigation ul li.active > .notes-nb-row { background: var(--color-primary-element-light); font-weight: 600; }
+#app-navigation ul ul { margin-left: 14px; }
+.notes-nb-row { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-radius: var(--border-radius); cursor: pointer; }
+.notes-nb-row .notes-nb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-nb-row:hover { background: var(--color-background-hover); }
+.notes-tag-chip .icon-tag { margin-right: 6px; }
+/* Tag list as coloured pills (matching the meta_data app) */
+#notes-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 10px; }
+#notes-tags li { list-style: none; }
+#notes-tags .notes-tag-pill {
+	display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: .85em;
+	color: #fff; background: var(--color-primary-element); cursor: pointer; white-space: nowrap;
+}
+#notes-tags li.active .notes-tag-pill { box-shadow: 0 0 0 2px var(--color-main-text); }
+
+/* ── List + editor split ──────────────────────────────────────────────────── */
+#app-content { display: flex; height: 100%; }
+#notes-list-pane {
+	width: 340px; min-width: 240px; border-right: 1px solid var(--color-border);
+	display: flex; flex-direction: column; height: 100%;
+}
+#notes-list-toolbar { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--color-border); }
+#notes-search { width: 100%; box-sizing: border-box; }
+.notes-toolbar-row { display: flex; gap: 6px; align-items: center; }
+.notes-toolbar-row #notes-template { flex: 1; min-width: 0; }
+#notes-new-note { white-space: nowrap; }
+#notes-list-context { padding: 6px 12px; color: var(--color-text-maxcontrast); font-size: .9em; }
+.notes-selectall { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.notes-selectall input { margin: 0; }
+#notes-list { flex: 1; overflow-y: auto; margin: 0; }
+#notes-list li {
+	padding: 10px 12px; border-bottom: 1px solid var(--color-border); cursor: pointer;
+	display: flex; gap: 8px; align-items: flex-start;
+}
+#notes-list li:hover { background: var(--color-background-hover); }
+.notes-item-check { margin: 2px 0 0; flex-shrink: 0; cursor: pointer; }
+.notes-item-main { flex: 1; min-width: 0; }
+#notes-selection-bar { display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+	background: var(--color-primary-element-light); font-size: .9em; }
+.notes-sel-hint { color: var(--color-text-maxcontrast); }
+.notes-sel-clear { margin-left: auto; }
+#notes-list li.active { background: var(--color-primary-element-light); }
+#notes-list .notes-item-title { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+#notes-list .notes-item-excerpt { color: var(--color-text-maxcontrast); font-size: .85em; margin-top: 2px;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#notes-list .notes-item-tags { margin-top: 4px; }
+.notes-tag { display: inline-block; font-size: .75em; padding: 3px 8px; margin-right: 4px;
+	border-radius: 10px; background: var(--color-background-dark); color: var(--color-text-maxcontrast); }
+.notes-todo-box { color: var(--color-primary-element); }
+.notes-todo-done { text-decoration: line-through; color: var(--color-text-maxcontrast); }
+
+/* ── Editor ───────────────────────────────────────────────────────────────── */
+#notes-editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+.notes-empty { margin: auto; color: var(--color-text-maxcontrast); }
+#notes-editor-wrap { display: flex; flex-direction: column; height: 100%; padding: 8px 12px; box-sizing: border-box; }
+#notes-editor-head { display: flex; align-items: center; gap: 8px; }
+#notes-title { flex: 1; font-size: 1.2em; font-weight: 600; }
+#notes-status { color: var(--color-text-maxcontrast); font-size: .85em; min-width: 60px; }
+#notes-tags-edit { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+#notes-tag-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.notes-editor-tag { display: inline-flex; align-items: center; gap: 1px; padding: 4px 3px 4px 10px;
+	border-radius: 12px; font-size: .85em; line-height: 1.4; color: #fff; background: var(--color-primary-element); }
+.notes-editor-tag button { background: none; border: none; color: #fff; cursor: pointer; font-size: 1em;
+	line-height: 1; padding: 0 2px; margin: 0; min-height: 0; min-width: 0; height: auto; opacity: .85; }
+.notes-editor-tag button:hover { opacity: 1; }
+#notes-tags-input { width: 140px; }
+.notes-footer-toggle { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-maxcontrast); font-size: .85em; cursor: pointer; }
+.notes-footer-toggle input { margin: 0; }
+/* drag & drop: multi-select + drop targets */
+#notes-list li.selected { background: var(--color-primary-element-light); }
+#notes-list li.dragging { opacity: .5; }
+.notes-drop-target { outline: 2px dashed var(--color-primary-element); outline-offset: -2px; border-radius: var(--border-radius); }
+/* Small coloured pills: draw the dashed frame OUTSIDE so it reads as clearly as
+   the notebook/folder drop highlight. */
+.notes-tag-pill.notes-drop-target { outline-offset: 2px; }
+#notes-nb-header.notes-drop-target { outline-offset: -1px; background: var(--color-primary-element-light); }
+#notes-footer-view { background: var(--color-background-dark); padding: 8px 12px; border-radius: var(--border-radius);
+	font-size: .85em; white-space: pre-wrap; margin: 0 0 8px; }
+.EasyMDEContainer { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.EasyMDEContainer .CodeMirror { flex: 1; min-height: 0; }
+
+/* ── Theme: EasyMDE ships hardcoded light colours; bind them to NC's theme
+   variables so the editor follows dark/light automatically. ──────────────── */
+.EasyMDEContainer .CodeMirror {
+	background: var(--color-main-background); color: var(--color-main-text);
+	border-color: var(--color-border);
+}
+.EasyMDEContainer .CodeMirror-cursor { border-color: var(--color-main-text); }
+.EasyMDEContainer .CodeMirror-selected,
+.EasyMDEContainer .CodeMirror-line::selection,
+.EasyMDEContainer .CodeMirror-line ::selection { background: var(--color-primary-element-light); }
+.EasyMDEContainer .CodeMirror-cursors { } /* keep default blink */
+.editor-toolbar {
+	background: var(--color-main-background); border-color: var(--color-border);
+	opacity: 1;
+}
+.editor-toolbar button { color: var(--color-main-text) !important; border-color: transparent; }
+.editor-toolbar button:hover,
+.editor-toolbar button.active { background: var(--color-background-hover); border-color: var(--color-border); }
+.editor-toolbar i.separator { border-left-color: var(--color-border); border-right-color: var(--color-main-background); }
+.EasyMDEContainer .editor-preview,
+.EasyMDEContainer .editor-preview-side {
+	background: var(--color-main-background); color: var(--color-main-text);
+}
+.EasyMDEContainer .editor-preview-side { border-color: var(--color-border); }
+.EasyMDEContainer .editor-preview pre,
+.EasyMDEContainer .editor-preview code,
+.EasyMDEContainer .CodeMirror .cm-comment { background: var(--color-background-dark); }
+.EasyMDEContainer .editor-preview blockquote { border-left-color: var(--color-border); color: var(--color-text-maxcontrast); }

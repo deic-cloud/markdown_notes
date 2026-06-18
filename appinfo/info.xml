@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>notes</id>
+	<name>Notes</name>
+	<summary>Markdown notes as real files, with Joplin synchronisation</summary>
+	<description>A web UI for markdown notes stored as ordinary .md files in a real folder tree — notebooks are folders, tags live in a short note footer, and nothing is hidden in per-item sidecar files, so notes stay editable anywhere. Supports templates (with variable substitution) for things like lab notebooks, todos via tags, and LaTeX/mhchem rendering. A companion sync layer keeps the same files in sync with Joplin on desktop and mobile.</description>
+	<version>1.0.22</version>
+	<licence>agpl</licence>
+	<author mail="fror@dtu.dk">Frederik Orellana, DTU</author>
+	<namespace>Notes</namespace>
+	<bootstrap>OCA\Notes\AppInfo\Application</bootstrap>
+	<category>office</category>
+	<category>organization</category>
+	<website>https://github.com/deic-cloud/notes</website>
+	<bugs>https://github.com/deic-cloud/notes/issues</bugs>
+	<dependencies>
+		<nextcloud min-version="28" max-version="35"/>
+		<php min-version="8.2"/>
+	</dependencies>
+	<navigations>
+		<navigation>
+			<name>Notes</name>
+			<route>notes.page.index</route>
+			<icon>app.svg</icon>
+			<order>10</order>
+		</navigation>
+	</navigations>
+</info>
