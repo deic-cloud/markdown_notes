@@ -35,9 +35,21 @@
 	function renderMarkdownWithMath(text) {
 		var store = [];
 		function stash(m) { store.push(m); return '@@MJX' + (store.length - 1) + '@@'; }
+		// In a bare display block, MathJax ignores `\\` (line breaks only work
+		// inside an alignment environment). If the user wrote `\\` without their
+		// own \begin{…}, wrap the body so `\\` just works: `aligned` when they use
+		// `&` columns, otherwise `gathered` (centred lines).
+		function wrapDisplay(m, open, close) {
+			var inner = m.slice(open.length, m.length - close.length);
+			if (/\\\\/.test(inner) && !/\\begin\{/.test(inner)) {
+				var env = /&/.test(inner) ? 'aligned' : 'gathered';
+				inner = '\\begin{' + env + '}' + inner + '\\end{' + env + '}';
+			}
+			return open + inner + close;
+		}
 		var protectedText = text
-			.replace(/\$\$[\s\S]+?\$\$/g, stash)                                   // $$ … $$ display (blank lines OK)
-			.replace(/\\\[[\s\S]+?\\\]/g, stash)                                    // \[ … \] display
+			.replace(/\$\$[\s\S]+?\$\$/g, function (m) { return stash(wrapDisplay(m, '$$', '$$')); })   // $$ … $$ display (blank lines OK)
+			.replace(/\\\[[\s\S]+?\\\]/g, function (m) { return stash(wrapDisplay(m, '\\[', '\\]')); })  // \[ … \] display
 			.replace(/\\\([\s\S]+?\\\)/g, stash)                                    // \( … \) inline
 			.replace(/(^|[^\\$])\$([^\n$]+?)\$/g, function (m, pre, inner) {         // $ … $ inline
 				return pre + stash('$' + inner + '$');
