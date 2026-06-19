@@ -93,6 +93,7 @@ class ApiController extends OCSController {
 			$todo = $is_todo === '' ? null : ($is_todo === '1' || $is_todo === 'true');
 			$note = $this->notesService->saveNote($this->uid(), $path, $title, $body, $tags, $todo, $todo_due);
 			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->seedTagFields($note['tags']);
 			return $note;
 		});
 	}
@@ -156,8 +157,24 @@ class ApiController extends OCSController {
 		return $this->run(function () use ($path, $tags) {
 			$note = $this->notesService->addTags($this->uid(), $path, $tags);
 			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->seedTagFields($note['tags']);
 			return $note;
 		});
+	}
+
+	/**
+	 * For each tag, ensure the meta_data fields defined by a matching template
+	 * exist — so applying a tag auto-creates its columns (no-op without meta_data
+	 * or a matching template; idempotent).
+	 *
+	 * @param string[] $tagNames
+	 */
+	private function seedTagFields(array $tagNames): void {
+		foreach (array_unique($tagNames) as $tag) {
+			foreach ($this->notesService->templateVariablesForTag($this->uid(), $tag) as $v) {
+				$this->metaBridge->ensureKey($tag, $v['name'], $v['type'], $v['options'] ?? []);
+			}
+		}
 	}
 
 	#[NoAdminRequired]

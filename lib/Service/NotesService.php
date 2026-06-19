@@ -381,6 +381,32 @@ class NotesService {
 		return array_keys($tags);
 	}
 
+	/**
+	 * Custom variables of the first template whose template_tags includes the
+	 * given tag — used to auto-seed a tag's meta_data fields when it's applied to
+	 * a note. Empty if no template defines fields for that tag.
+	 *
+	 * @return array<int, array{name:string,label:string,type:string,options:string[]}>
+	 */
+	public function templateVariablesForTag(string $uid, string $tagName): array {
+		$notes = $this->notesFolder($uid);
+		if (!$notes->nodeExists('Templates') || !($notes->get('Templates') instanceof Folder)) {
+			return [];
+		}
+		foreach ($notes->get('Templates')->getDirectoryListing() as $file) {
+			$name = $file->getName();
+			if ($file instanceof Folder || substr($name, -3) !== '.md') {
+				continue;
+			}
+			$tpl = TemplateFormat::parse($this->readContent($file));
+			$tags = array_filter(array_map('trim', explode(',', $tpl['tags'])));
+			if (in_array($tagName, $tags, true) && !empty($tpl['variables'])) {
+				return $tpl['variables'];
+			}
+		}
+		return [];
+	}
+
 	/** Front matter of a template: its (raw) title, tags and custom variables to prompt for. */
 	public function templateInfo(string $uid, string $templateRel): array {
 		$tpl = TemplateFormat::parse($this->readContent($this->relNode($uid, $templateRel)));
