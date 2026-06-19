@@ -27,7 +27,8 @@
 			</div>
 			<div class="notes-toolbar-row">
 				<label class="notes-sort-label" for="notes-sort"><?php p($l->t('Sort:')); ?></label>
-				<select id="notes-sort">
+				<select id="notes-sort" title="<?php p($l->t('Sort (pick the same field again to reverse)')); ?>">
+					<option value="__cur" selected></option>
 					<option value="updated"><?php p($l->t('Updated')); ?></option>
 					<option value="created"><?php p($l->t('Created')); ?></option>
 					<option value="title"><?php p($l->t('Title')); ?></option>

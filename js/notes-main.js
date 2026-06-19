@@ -5,7 +5,7 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', columns: [], metaView: 'list' };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list' };
 	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
 	function msToInput(ms) {
 		var d = new Date(Number(ms));
@@ -216,24 +216,40 @@
 	function dueMs(n) { var d = n.is_todo && n.todo_due ? Number(n.todo_due) : 0; return d > 0 ? d : 0; }
 	function sortNotes(list) {
 		var arr = list.slice();
-		switch (state.sortMode) {
-		case 'title':
-			arr.sort(function (a, b) { return (a.title || '').localeCompare(b.title || ''); }); break;
-		case 'created':
-			arr.sort(function (a, b) { return (Date.parse(b.created) || 0) - (Date.parse(a.created) || 0); }); break;
-		case 'due':
-			// To-dos with a due date first (earliest due first); everything else by updated.
+		var dir = state.sortDir === 'asc' ? 1 : -1;
+		if (state.sortMode === 'due') {
+			// To-dos with a due date first; direction reverses their order; the
+			// rest (no due) always trail, by most-recently-updated.
 			arr.sort(function (a, b) {
 				var da = dueMs(a), db = dueMs(b);
-				if (da && db) { return da - db; }
+				if (da && db) { return (da - db) * dir; }
 				if (da) { return -1; }
 				if (db) { return 1; }
 				return (b.modified || 0) - (a.modified || 0);
-			}); break;
-		default: // updated
-			arr.sort(function (a, b) { return (b.modified || 0) - (a.modified || 0); });
+			});
+			return arr;
 		}
+		var cmp; // ascending comparators; multiplied by dir
+		if (state.sortMode === 'title') { cmp = function (a, b) { return (a.title || '').localeCompare(b.title || ''); }; }
+		else if (state.sortMode === 'created') { cmp = function (a, b) { return (Date.parse(a.created) || 0) - (Date.parse(b.created) || 0); }; }
+		else { cmp = function (a, b) { return (a.modified || 0) - (b.modified || 0); }; } // updated
+		arr.sort(function (a, b) { return cmp(a, b) * dir; });
 		return arr;
+	}
+	function defaultSortDir(field) { return (field === 'title' || field === 'due') ? 'asc' : 'desc'; }
+	function updateSortDisplay() {
+		var labels = { updated: t('markdown_notes', 'Updated'), created: t('markdown_notes', 'Created'), title: t('markdown_notes', 'Title'), due: t('markdown_notes', 'Due date') };
+		var sel = el('notes-sort');
+		sel.options[0].textContent = labels[state.sortMode] + ' ' + (state.sortDir === 'asc' ? '↑' : '↓');
+		sel.selectedIndex = 0; // keep the live "current" entry shown; re-picking a field fires change
+	}
+	function onSortChange() {
+		var v = el('notes-sort').value;
+		if (v === '__cur') { return; }
+		if (v === state.sortMode) { state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; }
+		else { state.sortMode = v; state.sortDir = defaultSortDir(v); }
+		updateSortDisplay();
+		renderList();
 	}
 	function formatDue(ms) {
 		var d = new Date(ms);
@@ -774,7 +790,8 @@
 		el('notes-new-notebook').addEventListener('click', newNotebook);
 		el('notes-new-note').addEventListener('click', newNote);
 		el('notes-new-todo').addEventListener('click', newTodo);
-		el('notes-sort').addEventListener('change', function () { state.sortMode = this.value; renderList(); });
+		el('notes-sort').addEventListener('change', onSortChange);
+		updateSortDisplay();
 		// To-do toggle reveals the due-date picker; clearing the due date.
 		el('notes-is-todo').addEventListener('change', function () {
 			el('notes-due-wrap').style.display = this.checked ? 'inline-flex' : 'none';
