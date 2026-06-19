@@ -22,7 +22,8 @@
 #notes-tags li { list-style: none; }
 #notes-tags .notes-tag-pill {
 	display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: .85em;
-	color: #fff; background: var(--color-primary-element); cursor: pointer; white-space: nowrap;
+	color: var(--color-main-text); background: transparent; border: 1px solid var(--color-border-dark);
+	cursor: pointer; white-space: nowrap;
 }
 #notes-tags li.active .notes-tag-pill { box-shadow: 0 0 0 2px var(--color-main-text); }
 
@@ -57,10 +58,10 @@
 #notes-list .notes-item-excerpt { color: var(--color-text-maxcontrast); font-size: .85em; margin-top: 2px;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #notes-list .notes-item-tags { margin-top: 4px; }
-/* Uncoloured tags default to the primary blue (matching the sidebar + editor
-   chips); an explicit systemtag colour overrides via inline style. */
+/* Uncoloured tags are outlined (transparent + border), like the meta_data app;
+   an explicit systemtag colour fills the pill (white text) via inline style. */
 .notes-tag { display: inline-block; font-size: .75em; padding: 3px 8px; margin-right: 4px;
-	border-radius: 10px; background: var(--color-primary-element); color: #fff; }
+	border-radius: 10px; background: transparent; color: var(--color-main-text); border: 1px solid var(--color-border-dark); }
 .notes-todo-box { color: var(--color-primary-element); cursor: pointer; margin-left: auto; align-self: center; font-size: 1.3em; line-height: 1; padding: 0 2px; }
 .notes-todo-done { text-decoration: line-through; color: var(--color-text-maxcontrast); }
 .notes-item-due { color: var(--color-text-maxcontrast); font-size: .8em; margin-top: 2px; }
@@ -85,8 +86,8 @@
 #notes-tags-edit { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
 #notes-tag-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .notes-editor-tag { display: inline-flex; align-items: center; gap: 1px; padding: 4px 3px 4px 10px;
-	border-radius: 12px; font-size: .85em; line-height: 1.4; color: #fff; background: var(--color-primary-element); }
-.notes-editor-tag button { background: none; border: none; color: #fff; cursor: pointer; font-size: 1em;
+	border-radius: 12px; font-size: .85em; line-height: 1.4; color: var(--color-main-text); background: transparent; border: 1px solid var(--color-border-dark); }
+.notes-editor-tag button { background: none; border: none; color: inherit; cursor: pointer; font-size: 1em;
 	line-height: 1; padding: 0 2px; margin: 0; min-height: 0; min-width: 0; height: auto; opacity: .85; }
 .notes-editor-tag button:hover { opacity: 1; }
 #notes-tags-input { width: 140px; }

@@ -158,7 +158,7 @@
 			// they reach our handler, so the pill is a plain clickable span.
 			var a = el2('span', 'notes-tag-pill');
 			a.textContent = name;
-			if (color) { a.style.background = color; }
+			if (color) { a.style.background = color; a.style.color = '#fff'; a.style.borderColor = color; }
 			a.addEventListener('click', function () { selectTag(name); });
 			li.appendChild(a);
 			makeDropTarget(a, function () { if (!draggedNotebook) { dropTag(draggedPaths, name); } });
@@ -297,7 +297,7 @@
 			}
 			var tags = (n.tags || []).map(function (tg) {
 				var c = normColor(state.tagColors[tg]);
-				return '<span class="notes-tag"' + (c ? ' style="background:' + c + ';color:#fff"' : '') + '>' + esc(tg) + '</span>';
+				return '<span class="notes-tag"' + (c ? ' style="background:' + c + ';color:#fff;border-color:' + c + '"' : '') + '>' + esc(tg) + '</span>';
 			}).join('');
 			li.innerHTML =
 				'<input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' title="' + esc(t('markdown_notes', 'Select')) + '" />' +
@@ -481,7 +481,7 @@
 		state.editorTags.forEach(function (tg) {
 			var chip = el2('span', 'notes-editor-tag');
 			var c = normColor(state.tagColors[tg]);
-			if (c) { chip.style.background = c; }
+			if (c) { chip.style.background = c; chip.style.color = '#fff'; chip.style.borderColor = c; }
 			chip.appendChild(document.createTextNode(tg));
 			var x = el2('button', '');
 			x.type = 'button'; x.textContent = '×'; x.title = t('markdown_notes', 'Remove tag');
