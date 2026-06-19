@@ -573,13 +573,15 @@
 		}).catch(showError);
 	}
 	function deleteNote() {
-		if (!state.notePath || !confirm(t('markdown_notes', 'Delete this note?'))) { return; }
-		post('/note/delete', p('path', state.notePath)).then(function () {
-			state.notePath = null;
-			el('notes-editor-wrap').style.display = 'none';
-			el('notes-editor-empty').style.display = 'block';
-			return refreshAfterChange();
-		}).catch(showError);
+		if (!state.notePath) { return; }
+		ncConfirm(t('markdown_notes', 'Delete this note?'), t('markdown_notes', 'Delete note'), function () {
+			post('/note/delete', p('path', state.notePath)).then(function () {
+				state.notePath = null;
+				el('notes-editor-wrap').style.display = 'none';
+				el('notes-editor-empty').style.display = 'block';
+				return refreshAfterChange();
+			}).catch(showError);
+		});
 	}
 	function refreshAfterChange() { return Promise.all([loadList(), loadTree()]); }
 
@@ -591,6 +593,8 @@
 	function createFromTemplate(isTodo) {
 		var template = el('notes-template').value || '';
 		var notebook = state.mode === 'notebook' ? state.notebook : '';
+		var defTitle = t('markdown_notes', isTodo ? 'New to-do' : 'New note');
+		var dlgTitle = t('markdown_notes', isTodo ? 'New to-do' : 'New note');
 		function send(title, vars) {
 			var params = p('notebook', notebook, 'title', title || '', 'template', template,
 				'is_todo', isTodo ? '1' : '0', 'vars', vars ? JSON.stringify(vars) : '');
@@ -598,37 +602,32 @@
 				return refreshAfterChange().then(function () { return openNote(note.path); });
 			}).catch(showError);
 		}
-		function askTitle() {
-			return prompt(t('markdown_notes', isTodo ? 'To-do title' : 'Note title'),
-				t('markdown_notes', isTodo ? 'New to-do' : 'New note'));
-		}
 		if (!template) {
-			var title = askTitle();
-			if (title === null) { return; }
-			send(title, null);
+			ncPrompt(dlgTitle, t('markdown_notes', 'Title'), defTitle, function (title) { send(title || defTitle, null); }, t('markdown_notes', 'Create'));
 			return;
 		}
 		get('/template/info', p('path', template)).then(function (info) {
-			var vars = {};
-			var list = info.variables || [];
-			for (var i = 0; i < list.length; i++) {
-				var v = list[i];
-				var label = v.label || v.name;
-				if (v.type === 'dropdown' && v.options && v.options.length) { label += ' (' + v.options.join(' / ') + ')'; }
-				var ans = prompt(label, '');
-				if (ans === null) { return; } // cancelled
-				vars[v.name] = ans;
-			}
-			var title = '';
-			if (!info.title) { title = askTitle(); if (title === null) { return; } } // template sets no title → ask
-			send(title, vars);
+			// One typed form for the template's custom variables (+ a title field
+			// if the template doesn't set its own title).
+			var fields = [];
+			if (!info.title) { fields.push({ name: '__title__', label: t('markdown_notes', 'Title'), type: 'text', value: defTitle }); }
+			(info.variables || []).forEach(function (v) {
+				fields.push({ name: v.name, label: v.label || v.name, type: v.type, options: v.options });
+			});
+			if (!fields.length) { send('', {}); return; }
+			formDialog(dlgTitle, fields, t('markdown_notes', 'Create'), function (vals) {
+				var title = '';
+				if ('__title__' in vals) { title = vals.__title__; delete vals.__title__; }
+				send(title, vals);
+			});
 		}).catch(showError);
 	}
 	function newNotebook() {
-		var name = prompt(t('markdown_notes', 'Notebook name'));
-		if (!name) { return; }
 		var parent = state.mode === 'notebook' ? state.notebook : '';
-		post('/notebook/create', p('parent', parent, 'name', name)).then(loadTree).catch(showError);
+		ncPrompt(t('markdown_notes', 'New notebook'), t('markdown_notes', 'Name'), '', function (name) {
+			if (!name) { return; }
+			post('/notebook/create', p('parent', parent, 'name', name)).then(loadTree).catch(showError);
+		}, t('markdown_notes', 'Create'));
 	}
 	function loadTemplates() {
 		return get('/templates').then(function (tpls) {
@@ -689,6 +688,60 @@
 				if (mde) { mde.codemirror.replaceSelection('![' + name + '](' + url + ')'); }
 				el('notes-status').textContent = '';
 			}).catch(showError);
+	}
+
+	// ── Dialogs (NC-styled, not browser prompt/confirm) ──────────────────────
+	function ncConfirm(text, title, onYes) {
+		if (window.OC && OC.dialogs && OC.dialogs.confirm) {
+			OC.dialogs.confirm(text, title, function (ok) { if (ok) { onYes(); } }, true);
+		} else if (window.confirm(text)) { onYes(); }
+	}
+	function ncPrompt(title, label, value, onOk, okLabel) {
+		formDialog(title, [{ name: 'value', label: label, type: 'text', value: value }], okLabel || t('markdown_notes', 'OK'),
+			function (vals) { onOk(vals.value); });
+	}
+	// A small NC-styled modal with one field per descriptor; field controls honour
+	// the type (text/number/date/time/boolean/dropdown). onSubmit gets {name: value}.
+	function formDialog(title, fields, okLabel, onSubmit) {
+		var done = false;
+		var back = el2('div', 'notes-modal-backdrop');
+		var modal = el2('div', 'notes-modal');
+		var h = el2('h3', ''); h.textContent = title; modal.appendChild(h);
+		var body = el2('div', 'notes-modal-body');
+		var controls = {};
+		fields.forEach(function (f) {
+			var row = el2('div', 'notes-modal-field');
+			var lab = el2('label', ''); lab.textContent = f.label || f.name; row.appendChild(lab);
+			var ctrl;
+			if (f.type === 'dropdown') {
+				ctrl = document.createElement('select');
+				ctrl.innerHTML = '<option value=""></option>' + (f.options || []).map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('');
+			} else if (f.type === 'boolean') {
+				ctrl = document.createElement('input'); ctrl.type = 'checkbox';
+			} else if (f.type === 'number' || f.type === 'date' || f.type === 'time') {
+				ctrl = document.createElement('input'); ctrl.type = f.type;
+			} else {
+				ctrl = document.createElement('input'); ctrl.type = 'text';
+			}
+			ctrl.className = 'notes-modal-input';
+			if (f.value != null && f.type !== 'boolean') { ctrl.value = f.value; }
+			controls[f.name] = ctrl; row.appendChild(ctrl); body.appendChild(row);
+		});
+		modal.appendChild(body);
+		var actions = el2('div', 'notes-modal-actions');
+		var cancelB = el2('button', ''); cancelB.type = 'button'; cancelB.textContent = t('markdown_notes', 'Cancel');
+		var okB = el2('button', 'primary'); okB.type = 'button'; okB.textContent = okLabel || t('markdown_notes', 'OK');
+		actions.appendChild(cancelB); actions.appendChild(okB); modal.appendChild(actions);
+		back.appendChild(modal); document.body.appendChild(back);
+		function close() { done = true; if (back.parentNode) { document.body.removeChild(back); } document.removeEventListener('keydown', onKey); }
+		function submit() { if (done) { return; } var vals = {}; Object.keys(controls).forEach(function (k) { var c = controls[k]; vals[k] = c.type === 'checkbox' ? (c.checked ? 'true' : 'false') : c.value; }); close(); onSubmit(vals); }
+		function onKey(e) { if (e.key === 'Escape') { close(); } else if (e.key === 'Enter' && e.target && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') { e.preventDefault(); submit(); } }
+		cancelB.addEventListener('click', close);
+		okB.addEventListener('click', submit);
+		back.addEventListener('click', function (e) { if (e.target === back) { close(); } });
+		document.addEventListener('keydown', onKey);
+		var first = modal.querySelector('.notes-modal-input');
+		if (first) { first.focus(); if (first.select) { first.select(); } }
 	}
 
 	// ── Math toolbar: wrap selection (or insert empty delimiters) ─────────────
