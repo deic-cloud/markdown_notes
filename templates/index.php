@@ -19,11 +19,11 @@
 		<div id="notes-list-toolbar">
 			<input type="text" id="notes-search" placeholder="<?php p($l->t('Search notes')); ?>" />
 			<div class="notes-toolbar-row">
-				<select id="notes-template" title="<?php p($l->t('Template')); ?>">
-					<option value=""><?php p($l->t('Blank')); ?></option>
-				</select>
 				<button id="notes-new-note" type="button" class="primary"><span class="icon-add"></span> <?php p($l->t('New note')); ?></button>
-				<button id="notes-new-todo" type="button" title="<?php p($l->t('New to-do')); ?>">☐ <?php p($l->t('To-do')); ?></button>
+					<button id="notes-new-todo" type="button"><span class="notes-plus">+</span> <?php p($l->t('New to-do')); ?></button>
+					<select id="notes-template" title="<?php p($l->t('Template')); ?>">
+						<option value=""><?php p($l->t('Blank')); ?></option>
+					</select>
 			</div>
 			<div class="notes-toolbar-row">
 				<label class="notes-sort-label" for="notes-sort"><?php p($l->t('Sort:')); ?></label>
