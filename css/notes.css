@@ -36,7 +36,7 @@
 #notes-list-toolbar { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--color-border); }
 #notes-search { width: 100%; box-sizing: border-box; }
 .notes-toolbar-row { display: flex; gap: 6px; align-items: center; }
-.notes-toolbar-row #notes-template { flex: 1; min-width: 0; }
+.notes-toolbar-row #notes-template { flex: 0 1 auto; width: 140px; min-width: 0; }
 #notes-new-note { white-space: nowrap; }
 #notes-list-context { padding: 6px 12px; color: var(--color-text-maxcontrast); font-size: .9em; }
 .notes-selectall { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -73,7 +73,7 @@
 #notes-new-todo:hover, #notes-new-todo:focus { background-color: #25508f; border-color: #25508f; color: #fff; }
 .notes-plus { font-weight: 700; }
 .notes-sort-label { color: var(--color-text-maxcontrast); font-size: .85em; }
-#notes-sort { flex: 1; min-width: 0; }
+#notes-sort { flex: 0 1 auto; width: auto; min-width: 0; }
 #notes-sort-dir { min-height: 0; height: auto; padding: 2px 10px; margin: 0; font-size: 1em; line-height: 1.6; }
 
 /* ── Editor ───────────────────────────────────────────────────────────────── */
@@ -121,6 +121,10 @@
 .notes-meta-table { width: 100%; border-collapse: collapse; font-size: .9em; }
 .notes-meta-table th, .notes-meta-table td { border-bottom: 1px solid var(--color-border); padding: 6px 8px; text-align: left; vertical-align: middle; }
 .notes-meta-table thead th { position: sticky; top: 0; background: var(--color-main-background); color: var(--color-text-maxcontrast); font-weight: 600; z-index: 1; }
+.notes-meta-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.notes-meta-table th.sortable:hover { color: var(--color-main-text); }
+.notes-meta-table th.sortable.active { color: var(--color-main-text); }
+#app-content.notes-meta-mode .notes-sort-row { display: none; }
 .notes-meta-table tr.active, .notes-meta-table tr.selected { background: var(--color-primary-element-light); }
 .notes-meta-table tr.dragging { opacity: .5; }
 .notes-meta-table .c-title { cursor: pointer; font-weight: 600; }

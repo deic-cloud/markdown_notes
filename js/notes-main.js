@@ -5,7 +5,7 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list' };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' } };
 	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
 	function msToInput(ms) {
 		var d = new Date(Number(ms));
@@ -334,18 +334,51 @@
 			.then(function () { if (!n.cols) { n.cols = {}; } n.cols[keyId] = value; })
 			.catch(showError);
 	}
+	// Sort the table rows by the clicked column (title / a metadata field /
+	// status), empties last, numeric-aware for number-like values.
+	function metaSorted() {
+		var q = (el('notes-search').value || '').toLowerCase();
+		var arr = state.notes.filter(function (n) { return noteMatches(n, q); });
+		var key = state.metaSort.key, dir = state.metaSort.dir === 'asc' ? 1 : -1;
+		function statusVal(n) { return !n.is_todo ? 2 : (n.todo_completed ? 1 : 0); }
+		function cellVal(n) { var id = key.slice(5); return (n.cols && n.cols[id] != null) ? String(n.cols[id]) : ''; }
+		arr.sort(function (a, b) {
+			var r;
+			if (key === 'title') { r = (a.title || '').localeCompare(b.title || ''); }
+			else if (key === 'status') { r = statusVal(a) - statusVal(b); }
+			else {
+				var va = cellVal(a), vb = cellVal(b);
+				if (va === '' && vb !== '') { return 1; }
+				if (vb === '' && va !== '') { return -1; }
+				var na = parseFloat(va), nb = parseFloat(vb);
+				r = (va !== '' && vb !== '' && !isNaN(na) && !isNaN(nb)) ? (na - nb) : va.localeCompare(vb);
+			}
+			return r * dir || ((b.modified || 0) - (a.modified || 0));
+		});
+		return arr;
+	}
+	function sortByHeader(key) {
+		if (state.metaSort.key === key) { state.metaSort.dir = state.metaSort.dir === 'asc' ? 'desc' : 'asc'; }
+		else { state.metaSort = { key: key, dir: 'asc' }; }
+		renderList();
+	}
 	function renderMetaTable() {
 		var wrap = el('notes-meta-table-wrap');
 		wrap.style.display = 'block';
 		wrap.innerHTML = '';
 		var table = document.createElement('table');
 		table.className = 'notes-meta-table';
-		var head = '<tr><th class="c-sel"></th><th>' + esc(t('markdown_notes', 'Title')) + '</th>' +
-			state.columns.map(function (c) { return '<th>' + esc(c.name) + '</th>'; }).join('') +
-			'<th class="c-done"></th></tr>';
+		function th(key, label) {
+			var active = state.metaSort.key === key;
+			var arrow = active ? (state.metaSort.dir === 'asc' ? ' ↑' : ' ↓') : '';
+			return '<th class="sortable' + (active ? ' active' : '') + '" data-sort="' + esc(key) + '">' + esc(label) + arrow + '</th>';
+		}
+		var head = '<tr><th class="c-sel"></th>' + th('title', t('markdown_notes', 'Title')) +
+			state.columns.map(function (c) { return th('meta:' + c.id, c.name); }).join('') +
+			th('status', t('markdown_notes', 'Status')) + '</tr>';
 		table.innerHTML = '<thead>' + head + '</thead>';
 		var tbody = document.createElement('tbody');
-		visibleSorted().forEach(function (n) {
+		metaSorted().forEach(function (n) {
 			var tr = document.createElement('tr');
 			tr.dataset.path = n.path;
 			tr.draggable = true;
@@ -376,6 +409,9 @@
 			tbody.appendChild(tr);
 		});
 		table.appendChild(tbody);
+		table.querySelectorAll('th.sortable').forEach(function (h) {
+			h.addEventListener('click', function () { sortByHeader(h.dataset.sort); });
+		});
 		wrap.appendChild(table);
 	}
 	function toggleCompleted(path, completed) {

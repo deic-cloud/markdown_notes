@@ -25,7 +25,7 @@
 						<option value=""></option>
 					</select>
 			</div>
-			<div class="notes-toolbar-row">
+			<div class="notes-toolbar-row notes-sort-row">
 				<label class="notes-sort-label" for="notes-sort"><?php p($l->t('Sort:')); ?></label>
 				<select id="notes-sort" title="<?php p($l->t('Sort field')); ?>">
 					<option value="updated"><?php p($l->t('Updated')); ?></option>
