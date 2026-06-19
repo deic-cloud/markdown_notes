@@ -104,6 +104,24 @@ class ApiController extends OCSController {
 			$isTodo = $is_todo === '1' || $is_todo === 'true';
 			$note = $this->notesService->createNote($this->uid(), $notebook, $title, $template, $isTodo, $varsArr);
 			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			// Register the template's typed variables as meta_data fields on the
+			// note's tags and store the entered values, so the tag's column appears
+			// in the list view (no-op without meta_data). Done after push so the
+			// system tags exist.
+			if ($template !== '' && !empty($varsArr)) {
+				$info = $this->notesService->templateInfo($this->uid(), $template);
+				foreach ($info['variables'] as $v) {
+					if (!array_key_exists($v['name'], $varsArr) || $varsArr[$v['name']] === '') {
+						continue;
+					}
+					foreach ($note['tags'] as $tagName) {
+						$keyId = $this->metaBridge->ensureKey($tagName, $v['name'], $v['type'], $v['options'] ?? []);
+						if ($keyId !== null) {
+							$this->metaBridge->setValue($tagName, (int)$note['fileid'], $keyId, (string)$varsArr[$v['name']]);
+						}
+					}
+				}
+			}
 			return $note;
 		});
 	}

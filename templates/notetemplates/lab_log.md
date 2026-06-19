@@ -4,8 +4,11 @@ template_tags: lab_log
 location:
   label: Location
   type: text
+status:
+  label: Status
+  type: controlled(planned, running, done)
 ---
-#### {{location}}, {{date}}
+#### {{location}}, {{date}} — {{status}}
 
 ### Goal
 

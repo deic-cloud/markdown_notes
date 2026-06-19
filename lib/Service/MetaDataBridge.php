@@ -82,6 +82,39 @@ class MetaDataBridge {
 		}
 	}
 
+	/**
+	 * Ensure a metadata field (key) exists on a tag, returning its id. A template
+	 * variable type `dropdown` maps to meta_data's `controlled` (with allowed
+	 * values); other types map to a plain field. Returns null if meta_data is
+	 * absent or the tag has no system tag yet.
+	 *
+	 * @param string[] $options
+	 */
+	public function ensureKey(string $tagName, string $name, string $type, array $options): ?int {
+		$ts = $this->service();
+		if ($ts === null) {
+			return null;
+		}
+		try {
+			$tagId = $ts->getTagIdByName($tagName);
+			if (!$tagId) {
+				return null;
+			}
+			foreach ($ts->getKeys((int)$tagId) as $k) {
+				if ($k['name'] === $name) {
+					return (int)$k['id'];
+				}
+			}
+			$mdType = $type === 'dropdown' ? 'controlled' : '';
+			$allowed = ($type === 'dropdown' && !empty($options)) ? (string)json_encode(array_values($options)) : '';
+			$key = $ts->newKey((int)$tagId, $name, $mdType, $allowed);
+			return $key ? (int)$key['id'] : null;
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes: meta_data ensureKey failed: ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			return null;
+		}
+	}
+
 	public function setValue(string $tagName, int $fileId, int $keyId, string $value): bool {
 		$ts = $this->service();
 		if ($ts === null) {
