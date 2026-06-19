@@ -168,24 +168,27 @@
 	function el2(tag, cls) { var e = document.createElement(tag); if (cls) { e.className = cls; } return e; }
 	function setActiveNav() {
 		document.querySelectorAll('#app-navigation li').forEach(function (li) { li.classList.remove('active'); });
+		// The notebook/all context and an optional tag FILTER are both highlighted.
 		if (state.mode === 'all') { document.querySelector('.notes-nav-all').classList.add('active'); }
 		if (state.mode === 'notebook') { var n = document.querySelector('#notes-notebooks li[data-notebook="' + cssEsc(state.notebook) + '"]'); if (n) n.classList.add('active'); }
-		if (state.mode === 'tag') { var t = document.querySelector('#notes-tags li[data-tag="' + cssEsc(state.tag) + '"]'); if (t) t.classList.add('active'); }
+		if (state.tag) { var tEl = document.querySelector('#notes-tags li[data-tag="' + cssEsc(state.tag) + '"]'); if (tEl) { tEl.classList.add('active'); } }
 	}
 	function cssEsc(s) { return (s || '').replace(/["\\]/g, '\\$&'); }
 
 	// ── List ────────────────────────────────────────────────────────────────
+	// Context = a notebook (or "all"); a tag is a FILTER layered on top of it
+	// (refines, doesn't replace). Selecting a context clears the filter; clicking
+	// a tag toggles it.
 	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; loadList(); }
 	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; loadList(); }
-	function selectTag(tag) { state.mode = 'tag'; state.tag = tag; state.notebook = ''; loadList(); }
+	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; loadList(); }
 
 	function loadList() {
 		setActiveNav();
-		var params;
-		if (state.mode === 'tag') { params = p('recursive', '1', 'tag', state.tag); }
-		else if (state.mode === 'all') { params = p('recursive', '1'); }
-		else { params = p('notebook', state.notebook); }
-		var ctx = state.mode === 'all' ? t('markdown_notes', 'All notes') : (state.mode === 'tag' ? '# ' + state.tag : state.notebook);
+		var params = state.mode === 'all' ? p('recursive', '1') : p('notebook', state.notebook);
+		if (state.tag) { params.append('tag', state.tag); }
+		var ctx = state.mode === 'all' ? t('markdown_notes', 'All notes') : state.notebook;
+		if (state.tag) { ctx += '  ·  #' + state.tag; }
 		var cEl = el('notes-list-context');
 		cEl.innerHTML = '';
 		var lbl = el2('label', 'notes-selectall');
