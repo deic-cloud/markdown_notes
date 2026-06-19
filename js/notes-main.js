@@ -242,7 +242,8 @@
 			var checked = state.selected.indexOf(n.path) >= 0;
 			if (checked) { li.classList.add('selected'); }
 			var done = n.is_todo && n.todo_completed;
-			var todo = n.is_todo ? '<span class="notes-todo-box" role="button" title="' + esc(t('markdown_notes', 'Mark done / not done')) + '">' + (done ? '☑' : '☐') + '</span> ' : '';
+			// "Done" box lives on the RIGHT of the row (away from the selection checkbox).
+			var doneBox = n.is_todo ? '<span class="notes-todo-box" role="button" title="' + esc(t('markdown_notes', 'Mark done / not done')) + '">' + (done ? '☑' : '☐') + '</span>' : '';
 			var titleCls = done ? ' notes-todo-done' : '';
 			var due = '';
 			if (dueMs(n)) {
@@ -256,11 +257,12 @@
 			li.innerHTML =
 				'<input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' title="' + esc(t('markdown_notes', 'Select')) + '" />' +
 				'<div class="notes-item-main">' +
-					'<div class="notes-item-title' + titleCls + '">' + todo + esc(n.title) + '</div>' +
+					'<div class="notes-item-title' + titleCls + '">' + esc(n.title) + '</div>' +
 					'<div class="notes-item-excerpt">' + esc(n.excerpt) + '</div>' +
 					due +
 					(tags ? '<div class="notes-item-tags">' + tags + '</div>' : '') +
-				'</div>';
+				'</div>' +
+				doneBox;
 			var cb = li.querySelector('.notes-item-check');
 			cb.addEventListener('click', function (e) { e.stopPropagation(); });
 			cb.addEventListener('change', function () { toggleSelect(n.path, cb.checked); });
