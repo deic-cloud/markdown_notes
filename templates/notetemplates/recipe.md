@@ -9,7 +9,7 @@ pungency:
   type: dropdown(🌶, 🌶 🌶, 🌶 🌶 🌶, 🌶 🌶 🌶 🌶, 🌶 🌶 🌶 🌶 🌶)
 course_type:
   label: Course type
-  type: dropdown(starter, main_course, desert, side__dish, other)
+  type: dropdown(starter, main_course, dessert, side_dish, other)
 vegetarian:
   label: Vegetarian
   type: dropdown(yes, no)
