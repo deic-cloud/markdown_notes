@@ -133,6 +133,11 @@ class ApiController extends OCSController {
 	}
 
 	#[NoAdminRequired]
+	public function setDue(string $path, string $due = ''): DataResponse {
+		return $this->run(fn () => $this->notesService->setDue($this->uid(), $path, $due));
+	}
+
+	#[NoAdminRequired]
 	public function templateInfo(string $path): DataResponse {
 		return $this->run(fn () => $this->notesService->templateInfo($this->uid(), $path));
 	}

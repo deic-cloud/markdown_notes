@@ -349,6 +349,10 @@
 			var r;
 			if (key === 'title') { r = (a.title || '').localeCompare(b.title || ''); }
 			else if (key === 'status') { r = statusVal(a) - statusVal(b); }
+			else if (key === 'due') {
+				var da = dueMs(a), db = dueMs(b);
+				if (da && db) { r = da - db; } else if (da) { return -1; } else if (db) { return 1; } else { r = 0; }
+			}
 			else {
 				var va = cellVal(a), vb = cellVal(b);
 				if (va === '' && vb !== '') { return 1; }
@@ -376,9 +380,11 @@
 			var arrow = active ? (state.metaSort.dir === 'asc' ? ' ↑' : ' ↓') : '';
 			return '<th class="sortable' + (active ? ' active' : '') + '" data-sort="' + esc(key) + '">' + esc(label) + arrow + '</th>';
 		}
+		// Native to-do columns (Due + Status) appear only when the list has to-dos.
+		var hasTodo = state.notes.some(function (n) { return n.is_todo; });
 		var head = '<tr><th class="c-sel"></th>' + th('title', t('markdown_notes', 'Title')) +
 			state.columns.map(function (c) { return th('meta:' + c.id, c.name); }).join('') +
-			th('status', t('markdown_notes', 'Status')) + '</tr>';
+			(hasTodo ? th('due', t('markdown_notes', 'Due')) + th('status', t('markdown_notes', 'Status')) : '') + '</tr>';
 		table.innerHTML = '<thead>' + head + '</thead>';
 		var tbody = document.createElement('tbody');
 		metaSorted().forEach(function (n) {
@@ -389,13 +395,19 @@
 			var checked = state.selected.indexOf(n.path) >= 0;
 			if (checked) { tr.classList.add('selected'); }
 			var done = n.is_todo && n.todo_completed;
+			var overdue = n.is_todo && !done && dueMs(n) && dueMs(n) < Date.now();
+			var todoCells = '';
+			if (hasTodo) {
+				todoCells =
+					'<td class="c-due">' + (n.is_todo ? '<input type="datetime-local" class="notes-due-input' + (overdue ? ' notes-overdue' : '') + '" value="' + (dueMs(n) ? msToInput(n.todo_due) : '') + '" />' : '') + '</td>' +
+					'<td class="c-done">' + (n.is_todo ? '<span class="notes-todo-box" role="button">' + (done ? '☑' : '☐') + '</span>' : '') + '</td>';
+			}
 			var cells = '<td class="c-sel"><input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' /></td>' +
 				'<td class="c-title' + (done ? ' notes-todo-done' : '') + '">' + esc(n.title) + '</td>' +
 				state.columns.map(function (c) {
 					var v = (n.cols && n.cols[c.id] != null) ? n.cols[c.id] : '';
 					return '<td>' + metaCellHtml(c, v) + '</td>';
-				}).join('') +
-				'<td class="c-done">' + (n.is_todo ? '<span class="notes-todo-box" role="button">' + (done ? '☑' : '☐') + '</span>' : '') + '</td>';
+				}).join('') + todoCells;
 			tr.innerHTML = cells;
 			var cb = tr.querySelector('.notes-item-check');
 			cb.addEventListener('click', function (e) { e.stopPropagation(); });
@@ -403,6 +415,13 @@
 			tr.querySelector('.c-title').addEventListener('click', function () { openNote(n.path); });
 			var box = tr.querySelector('.notes-todo-box');
 			if (box) { box.addEventListener('click', function (e) { e.stopPropagation(); toggleCompleted(n.path, !done); }); }
+			var dueInput = tr.querySelector('.notes-due-input');
+			if (dueInput) {
+				dueInput.addEventListener('click', function (e) { e.stopPropagation(); });
+				dueInput.addEventListener('change', function () {
+					post('/note/due', p('path', n.path, 'due', inputToMs(dueInput.value))).then(refreshAfterChange).catch(showError);
+				});
+			}
 			tr.querySelectorAll('[data-keyid]').forEach(function (ctrl) {
 				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
 				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value); });

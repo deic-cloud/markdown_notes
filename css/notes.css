@@ -129,6 +129,9 @@
 .notes-meta-table tr.dragging { opacity: .5; }
 .notes-meta-table .c-title { cursor: pointer; font-weight: 600; }
 .notes-meta-table .c-sel, .notes-meta-table .c-done { width: 1%; white-space: nowrap; text-align: center; }
+.notes-meta-table .c-due { width: 1%; white-space: nowrap; }
+.notes-meta-table .notes-due-input { width: auto; min-width: 0; }
+.notes-meta-table .notes-due-input.notes-overdue { color: var(--color-error, #d33); border-color: var(--color-error, #d33); }
 .notes-meta-table .notes-todo-box { font-size: 1.2em; margin: 0; }
 .notes-meta-table input[type="text"], .notes-meta-table select { width: 100%; min-width: 90px; box-sizing: border-box; }
 #app-content.notes-meta-mode #notes-list-pane { width: 100%; min-width: 0; border-right: none; }

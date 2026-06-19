@@ -14,6 +14,7 @@ return [
 		['name' => 'api#templateInfo',   'url' => '/api/v1/template/info',   'verb' => 'GET'],
 		['name' => 'api#saveNote',       'url' => '/api/v1/note/save',       'verb' => 'POST'],
 		['name' => 'api#setCompleted',   'url' => '/api/v1/note/complete',   'verb' => 'POST'],
+		['name' => 'api#setDue',         'url' => '/api/v1/note/due',        'verb' => 'POST'],
 		['name' => 'api#setMeta',        'url' => '/api/v1/note/meta',       'verb' => 'POST'],
 		['name' => 'api#createNote',     'url' => '/api/v1/note/create',     'verb' => 'POST'],
 		['name' => 'api#addTags',        'url' => '/api/v1/note/tag',        'verb' => 'POST'],

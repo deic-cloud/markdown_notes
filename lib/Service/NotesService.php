@@ -223,6 +223,18 @@ class NotesService {
 		return $this->getNote($uid, $rel);
 	}
 
+	/** Set (or clear, when $dueMs === '') a to-do's due date (Joplin epoch-ms). */
+	public function setDue(string $uid, string $rel, string $dueMs): array {
+		$file = $this->relNode($uid, $rel);
+		$parsed = NoteFormat::parse($this->readContent($file));
+		$meta = $parsed['meta'];
+		$meta['is_todo'] = '1';
+		$meta['todo_due'] = $dueMs !== '' ? $dueMs : null;
+		$meta['updated_time'] = $this->now();
+		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		return $this->getNote($uid, $rel);
+	}
+
 	/** Mark a to-do done/undone. Joplin stores todo_completed as epoch-ms (0/absent = open). */
 	public function setCompleted(string $uid, string $rel, bool $completed): array {
 		$file = $this->relNode($uid, $rel);
