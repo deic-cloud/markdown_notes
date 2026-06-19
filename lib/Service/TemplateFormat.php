@@ -105,9 +105,7 @@ class TemplateFormat {
 	}
 
 	private static function applyType(array &$var, string $type): void {
-		// `dropdown(a, b, c)` is Joplin's syntax; accept `controlled(...)` too
-		// (the meta_data term) — both become a dropdown of fixed values.
-		if (preg_match('/^(?:dropdown|controlled)\s*\((.*)\)$/', $type, $dm)) {
+		if (preg_match('/^dropdown\s*\((.*)\)$/', $type, $dm)) {
 			$var['type'] = 'dropdown';
 			$var['options'] = array_values(array_filter(array_map('trim', explode(',', $dm[1]))));
 		} else {

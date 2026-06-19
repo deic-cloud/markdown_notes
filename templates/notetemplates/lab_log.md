@@ -6,7 +6,7 @@ location:
   type: text
 status:
   label: Status
-  type: controlled(planned, running, done)
+  type: dropdown(planned, running, done)
 ---
 #### {{location}}, {{date}} — {{status}}
 
