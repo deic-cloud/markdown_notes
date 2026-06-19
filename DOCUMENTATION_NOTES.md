@@ -138,6 +138,17 @@ both apps. Stored in the visible `Templates/` folder; six ship by default.
 - The note folder defaults to `Notes/` (per-user, configurable via the
   `markdown_notes` `notesdir` user value).
 
+## 10b. Known UX wrinkles / future ideas (parked)
+
+- **Editing template files via the NC Text app is awkward.** Templates are `.md`
+  with YAML front matter; the Text app (Files) renders `.md` rich and *boxes* the
+  front matter, which is confusing for hand-editing a template. Text 8.0.0 has no
+  per-file "raw source" toggle for markdown. Possible future fixes: an in-app
+  template editor (form for fields + body) in markdown_notes, or guidance to edit
+  templates elsewhere. Parked 2026-06-19.
+- A "Plain / no-highlighting" toggle in our own editor (turn off CodeMirror
+  syntax colouring for a raw view) was offered; not built yet.
+
 ## 11. Planned — Joplin sync (Phase 2)
 
 Not yet built. A fast sync endpoint backed by an **id↔path index** (rebuildable by
