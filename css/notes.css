@@ -63,8 +63,9 @@
 .notes-todo-done { text-decoration: line-through; color: var(--color-text-maxcontrast); }
 .notes-item-due { color: var(--color-text-maxcontrast); font-size: .8em; margin-top: 2px; }
 .notes-item-due.notes-overdue { color: var(--color-error, #d33); font-weight: 600; }
-/* Styled like the primary "New note" button but a fixed dark blue (readable in
-   both light and dark themes); the "+" inherits the button text colour. */
+/* Both create buttons keep white text (and a white "+") in light and dark
+   themes; New to-do gets a fixed dark blue, New note keeps the primary accent. */
+#notes-new-note { color: #fff; }
 #notes-new-todo { white-space: nowrap; background-color: #1a3a6b; color: #fff; border-color: #1a3a6b; }
 #notes-new-todo:hover, #notes-new-todo:focus { background-color: #25508f; border-color: #25508f; color: #fff; }
 .notes-plus { font-weight: 700; }
