@@ -57,8 +57,10 @@
 #notes-list .notes-item-excerpt { color: var(--color-text-maxcontrast); font-size: .85em; margin-top: 2px;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #notes-list .notes-item-tags { margin-top: 4px; }
+/* Uncoloured tags default to the primary blue (matching the sidebar + editor
+   chips); an explicit systemtag colour overrides via inline style. */
 .notes-tag { display: inline-block; font-size: .75em; padding: 3px 8px; margin-right: 4px;
-	border-radius: 10px; background: var(--color-background-dark); color: var(--color-text-maxcontrast); }
+	border-radius: 10px; background: var(--color-primary-element); color: #fff; }
 .notes-todo-box { color: var(--color-primary-element); cursor: pointer; margin-left: auto; align-self: center; font-size: 1.3em; line-height: 1; padding: 0 2px; }
 .notes-todo-done { text-decoration: line-through; color: var(--color-text-maxcontrast); }
 .notes-item-due { color: var(--color-text-maxcontrast); font-size: .8em; margin-top: 2px; }
