@@ -343,6 +343,32 @@ class NotesService {
 		return $out;
 	}
 
+	/**
+	 * Distinct tag names referenced by templates' `template_tags`, even if no note
+	 * carries them yet. Used to enrich the add-tag autocomplete vocabulary so a
+	 * template's intended tags guard against spelling/capitalisation slips.
+	 *
+	 * @return string[]
+	 */
+	public function templateTags(string $uid): array {
+		$notes = $this->notesFolder($uid);
+		if (!$notes->nodeExists('Templates') || !($notes->get('Templates') instanceof Folder)) {
+			return [];
+		}
+		$tags = [];
+		foreach ($notes->get('Templates')->getDirectoryListing() as $file) {
+			$name = $file->getName();
+			if ($file instanceof Folder || substr($name, -3) !== '.md') {
+				continue;
+			}
+			$tpl = TemplateFormat::parse($this->readContent($file));
+			foreach (array_filter(array_map('trim', explode(',', $tpl['tags']))) as $tg) {
+				$tags[$tg] = true;
+			}
+		}
+		return array_keys($tags);
+	}
+
 	/** Front matter of a template: its (raw) title, tags and custom variables to prompt for. */
 	public function templateInfo(string $uid, string $templateRel): array {
 		$tpl = TemplateFormat::parse($this->readContent($this->relNode($uid, $templateRel)));

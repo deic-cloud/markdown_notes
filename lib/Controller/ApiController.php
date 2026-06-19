@@ -32,11 +32,26 @@ class ApiController extends OCSController {
 		return $this->run(function () {
 			$names = $this->notesService->allTags($this->uid());
 			$colors = $this->systemTagSync->tagColors($names);
+			// Autocomplete vocabulary = all system tags + tags referenced by
+			// templates (which may not be system tags yet), so it guards against
+			// spelling/capitalisation slips when adding a tag.
+			$vocab = $this->systemTagSync->allSystemTags();
+			$seen = [];
+			foreach ($vocab as $v) {
+				$seen[mb_strtolower($v['name'])] = true;
+			}
+			foreach ($this->notesService->templateTags($this->uid()) as $tg) {
+				if (!isset($seen[mb_strtolower($tg)])) {
+					$vocab[] = ['name' => $tg, 'color' => ''];
+					$seen[mb_strtolower($tg)] = true;
+				}
+			}
+			usort($vocab, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
 			return [
 				'notesFolder' => $this->notesService->notesFolderName($this->uid()),
 				'notebooks'   => $this->notesService->notebookTree($this->uid()),
 				'tags'        => array_map(static fn ($n) => ['name' => $n, 'color' => $colors[$n] ?? ''], $names),
-				'vocabulary'  => $this->systemTagSync->allSystemTags(),
+				'vocabulary'  => $vocab,
 			];
 		});
 	}
