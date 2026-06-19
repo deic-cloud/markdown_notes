@@ -27,13 +27,13 @@
 			</div>
 			<div class="notes-toolbar-row">
 				<label class="notes-sort-label" for="notes-sort"><?php p($l->t('Sort:')); ?></label>
-				<select id="notes-sort" title="<?php p($l->t('Sort (pick the same field again to reverse)')); ?>">
-					<option value="__cur" selected></option>
+				<select id="notes-sort" title="<?php p($l->t('Sort field')); ?>">
 					<option value="updated"><?php p($l->t('Updated')); ?></option>
 					<option value="created"><?php p($l->t('Created')); ?></option>
 					<option value="title"><?php p($l->t('Title')); ?></option>
 					<option value="due"><?php p($l->t('Due date')); ?></option>
 				</select>
+				<button id="notes-sort-dir" type="button" title="<?php p($l->t('Reverse sort order')); ?>">↓</button>
 			</div>
 		</div>
 		<div id="notes-list-context"></div>

@@ -238,16 +238,17 @@
 	}
 	function defaultSortDir(field) { return (field === 'title' || field === 'due') ? 'asc' : 'desc'; }
 	function updateSortDisplay() {
-		var labels = { updated: t('markdown_notes', 'Updated'), created: t('markdown_notes', 'Created'), title: t('markdown_notes', 'Title'), due: t('markdown_notes', 'Due date') };
-		var sel = el('notes-sort');
-		sel.options[0].textContent = labels[state.sortMode] + ' ' + (state.sortDir === 'asc' ? '↑' : '↓');
-		sel.selectedIndex = 0; // keep the live "current" entry shown; re-picking a field fires change
+		el('notes-sort').value = state.sortMode;
+		el('notes-sort-dir').textContent = state.sortDir === 'asc' ? '↑' : '↓';
 	}
 	function onSortChange() {
-		var v = el('notes-sort').value;
-		if (v === '__cur') { return; }
-		if (v === state.sortMode) { state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; }
-		else { state.sortMode = v; state.sortDir = defaultSortDir(v); }
+		state.sortMode = el('notes-sort').value;
+		state.sortDir = defaultSortDir(state.sortMode);
+		updateSortDisplay();
+		renderList();
+	}
+	function toggleSortDir() {
+		state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
 		updateSortDisplay();
 		renderList();
 	}
@@ -791,6 +792,7 @@
 		el('notes-new-note').addEventListener('click', newNote);
 		el('notes-new-todo').addEventListener('click', newTodo);
 		el('notes-sort').addEventListener('change', onSortChange);
+		el('notes-sort-dir').addEventListener('click', toggleSortDir);
 		updateSortDisplay();
 		// To-do toggle reveals the due-date picker; clearing the due date.
 		el('notes-is-todo').addEventListener('change', function () {
