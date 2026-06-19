@@ -13,6 +13,9 @@
 		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 	}
 	function inputToMs(v) { if (!v) { return ''; } var ms = new Date(v).getTime(); return isNaN(ms) ? '' : String(ms); }
+	function pad2(x) { return (x < 10 ? '0' : '') + x; }
+	function todayInput() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+	function nowTimeInput() { var d = new Date(); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
 	var draggedPaths = [];
 	var draggedNotebook = '';
 
@@ -612,7 +615,12 @@
 			var fields = [];
 			if (!info.title) { fields.push({ name: '__title__', label: t('markdown_notes', 'Title'), type: 'text', value: defTitle }); }
 			(info.variables || []).forEach(function (v) {
-				fields.push({ name: v.name, label: v.label || v.name, type: v.type, options: v.options });
+				var f = { name: v.name, label: v.label || v.name, type: v.type, options: v.options };
+				// Default date/time fields to now so a blank doesn't, e.g., empty a
+				// {{date}} the template also uses in its title.
+				if (v.type === 'date') { f.value = todayInput(); }
+				else if (v.type === 'time') { f.value = nowTimeInput(); }
+				fields.push(f);
 			});
 			if (!fields.length) { send('', {}); return; }
 			formDialog(dlgTitle, fields, t('markdown_notes', 'Create'), function (vals) {

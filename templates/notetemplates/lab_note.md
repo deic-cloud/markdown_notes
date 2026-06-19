@@ -1,6 +1,12 @@
 ---
 template_title: Laboratory note — {{date}}
 template_tags: lab_note
+project_name:
+  label: Project name
+  type: text
+date:
+  label: Date
+  type: date
 location:
   label: Location
   type: text
@@ -8,7 +14,9 @@ status:
   label: Status
   type: dropdown(planned, running, done)
 ---
-#### {{location}}, {{date}} — {{status}}
+#### {{project_name}} — {{date}}
+
+**Location:** {{location}}  ·  **Status:** {{status}}
 
 ### Measurements
 
