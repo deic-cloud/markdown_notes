@@ -100,13 +100,21 @@ class MetaDataBridge {
 			if (!$tagId) {
 				return null;
 			}
-			foreach ($ts->getKeys((int)$tagId) as $k) {
-				if ($k['name'] === $name) {
-					return (int)$k['id'];
-				}
-			}
 			$mdType = $type === 'dropdown' ? 'controlled' : '';
 			$allowed = ($type === 'dropdown' && !empty($options)) ? (string)json_encode(array_values($options)) : '';
+			foreach ($ts->getKeys((int)$tagId) as $k) {
+				if ($k['name'] === $name) {
+					$kid = (int)$k['id'];
+					// Bring an existing field in line with the template's current
+					// definition (e.g. a field first created as plain text, later
+					// given a dropdown type in the template).
+					if ($mdType === 'controlled'
+						&& ((string)($k['type'] ?? '') !== $mdType || (string)($k['allowed_values'] ?? '') !== $allowed)) {
+						$ts->updateKey((int)$tagId, $kid, $name, $mdType, $allowed);
+					}
+					return $kid;
+				}
+			}
 			$key = $ts->newKey((int)$tagId, $name, $mdType, $allowed);
 			return $key ? (int)$key['id'] : null;
 		} catch (\Throwable $e) {
