@@ -5,7 +5,7 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated' };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', columns: [], metaView: 'list' };
 	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
 	function msToInput(ms) {
 		var d = new Date(Number(ms));
@@ -179,9 +179,9 @@
 	// Context = a notebook (or "all"); a tag is a FILTER layered on top of it
 	// (refines, doesn't replace). Selecting a context clears the filter; clicking
 	// a tag toggles it.
-	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; loadList(); }
-	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; loadList(); }
-	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; loadList(); }
+	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; loadList(); }
+	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; loadList(); }
+	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; loadList(); }
 
 	function loadList() {
 		setActiveNav();
@@ -198,10 +198,20 @@
 		lbl.appendChild(m);
 		lbl.appendChild(document.createTextNode(' ' + ctx));
 		cEl.appendChild(lbl);
-		return get('/notes', params).then(function (notes) {
-			state.notes = notes;
+		return get('/notes', params).then(function (d) {
+			state.notes = Array.isArray(d) ? d : (d.notes || []);
+			state.columns = (d && d.columns) ? d.columns : [];
+			applyLayout();
 			renderList();
 		}).catch(showError);
+	}
+	// In "metadata mode" (a tag with meta_data fields) the list expands over the
+	// editor as a table; opening a note gives it the full width (with a Back btn).
+	function applyLayout() {
+		var ac = el('app-content');
+		var meta = state.columns.length > 0;
+		ac.classList.toggle('notes-meta-mode', meta);
+		ac.classList.toggle('notes-show-note', meta && state.metaView === 'note');
 	}
 	function dueMs(n) { var d = n.is_todo && n.todo_due ? Number(n.todo_due) : 0; return d > 0 ? d : 0; }
 	function sortNotes(list) {
@@ -230,14 +240,29 @@
 		function pad(x) { return (x < 10 ? '0' : '') + x; }
 		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 	}
+	function noteMatches(n, q) {
+		return !q || (n.title + ' ' + n.excerpt + ' ' + (n.tags || []).join(' ')).toLowerCase().indexOf(q) >= 0;
+	}
+	function visibleSorted() {
+		var q = (el('notes-search').value || '').toLowerCase();
+		return sortNotes(state.notes.filter(function (n) { return noteMatches(n, q); }));
+	}
+	// Dispatch: metadata-tag → editable table; otherwise the card list.
 	function renderList() {
+		if (state.columns.length) {
+			el('notes-list').style.display = 'none';
+			renderMetaTable();
+		} else {
+			el('notes-meta-table-wrap').style.display = 'none';
+			el('notes-list').style.display = '';
+			renderCards();
+		}
+		updateSelectionUI();
+	}
+	function renderCards() {
 		var ul = el('notes-list');
 		ul.innerHTML = '';
-		var q = (el('notes-search').value || '').toLowerCase();
-		var visible = state.notes.filter(function (n) {
-			return !q || (n.title + ' ' + n.excerpt + ' ' + (n.tags || []).join(' ')).toLowerCase().indexOf(q) >= 0;
-		});
-		sortNotes(visible).forEach(function (n) {
+		visibleSorted().forEach(function (n) {
 			var li = document.createElement('li');
 			li.dataset.path = n.path;
 			li.draggable = true;
@@ -276,7 +301,65 @@
 			li.addEventListener('dragend', function () { li.classList.remove('dragging'); });
 			ul.appendChild(li);
 		});
-		updateSelectionUI();
+	}
+	// Editable metadata table (meta_data columns) — full-width over the editor.
+	function metaCellHtml(col, val) {
+		if (col.type === 'controlled') {
+			var opts = '<option value=""></option>' + (col.options || []).map(function (o) {
+				return '<option' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>';
+			}).join('');
+			return '<select data-keyid="' + col.id + '">' + opts + '</select>';
+		}
+		return '<input type="text" data-keyid="' + col.id + '" value="' + esc(val) + '" />';
+	}
+	function saveMeta(n, keyId, value) {
+		post('/note/meta', p('path', n.path, 'tag', state.tag, 'keyId', String(keyId), 'value', value))
+			.then(function () { if (!n.cols) { n.cols = {}; } n.cols[keyId] = value; })
+			.catch(showError);
+	}
+	function renderMetaTable() {
+		var wrap = el('notes-meta-table-wrap');
+		wrap.style.display = 'block';
+		wrap.innerHTML = '';
+		var table = document.createElement('table');
+		table.className = 'notes-meta-table';
+		var head = '<tr><th class="c-sel"></th><th>' + esc(t('markdown_notes', 'Title')) + '</th>' +
+			state.columns.map(function (c) { return '<th>' + esc(c.name) + '</th>'; }).join('') +
+			'<th class="c-done"></th></tr>';
+		table.innerHTML = '<thead>' + head + '</thead>';
+		var tbody = document.createElement('tbody');
+		visibleSorted().forEach(function (n) {
+			var tr = document.createElement('tr');
+			tr.dataset.path = n.path;
+			tr.draggable = true;
+			if (n.path === state.notePath) { tr.classList.add('active'); }
+			var checked = state.selected.indexOf(n.path) >= 0;
+			if (checked) { tr.classList.add('selected'); }
+			var done = n.is_todo && n.todo_completed;
+			var cells = '<td class="c-sel"><input type="checkbox" class="notes-item-check"' + (checked ? ' checked' : '') + ' /></td>' +
+				'<td class="c-title' + (done ? ' notes-todo-done' : '') + '">' + esc(n.title) + '</td>' +
+				state.columns.map(function (c) {
+					var v = (n.cols && n.cols[c.id] != null) ? n.cols[c.id] : '';
+					return '<td>' + metaCellHtml(c, v) + '</td>';
+				}).join('') +
+				'<td class="c-done">' + (n.is_todo ? '<span class="notes-todo-box" role="button">' + (done ? '☑' : '☐') + '</span>' : '') + '</td>';
+			tr.innerHTML = cells;
+			var cb = tr.querySelector('.notes-item-check');
+			cb.addEventListener('click', function (e) { e.stopPropagation(); });
+			cb.addEventListener('change', function () { toggleSelect(n.path, cb.checked); });
+			tr.querySelector('.c-title').addEventListener('click', function () { openNote(n.path); });
+			var box = tr.querySelector('.notes-todo-box');
+			if (box) { box.addEventListener('click', function (e) { e.stopPropagation(); toggleCompleted(n.path, !done); }); }
+			tr.querySelectorAll('[data-keyid]').forEach(function (ctrl) {
+				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
+				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value); });
+			});
+			tr.addEventListener('dragstart', function (e) { onNoteDragStart(e, n.path, tr); });
+			tr.addEventListener('dragend', function () { tr.classList.remove('dragging'); });
+			tbody.appendChild(tr);
+		});
+		table.appendChild(tbody);
+		wrap.appendChild(table);
 	}
 	function toggleCompleted(path, completed) {
 		post('/note/complete', p('path', path, 'completed', completed ? '1' : '0'))
@@ -353,9 +436,13 @@
 			applyTodoFields(note.meta);
 			renderFooter(note.meta);
 			el('notes-status').textContent = '';
+			// In metadata mode the note takes the full width (list table hidden).
+			if (state.columns.length) { state.metaView = 'note'; }
+			applyLayout();
 			renderList();
 		}).catch(showError);
 	}
+	function backToList() { state.metaView = 'list'; applyLayout(); }
 	// Reflect the note's to-do state into the editor controls.
 	function applyTodoFields(meta) {
 		meta = meta || {};
@@ -572,10 +659,11 @@
 		updateSelectionUI();
 	}
 	function updateSelectionUI() {
-		document.querySelectorAll('#notes-list li').forEach(function (li) {
-			var sel = state.selected.indexOf(li.dataset.path) >= 0;
-			li.classList.toggle('selected', sel);
-			var cb = li.querySelector('.notes-item-check');
+		// Covers both the card list (<li>) and the metadata table (<tr>).
+		document.querySelectorAll('#notes-list-pane [data-path]').forEach(function (row) {
+			var sel = state.selected.indexOf(row.dataset.path) >= 0;
+			row.classList.toggle('selected', sel);
+			var cb = row.querySelector('.notes-item-check');
 			if (cb) { cb.checked = sel; }
 		});
 		var master = el('notes-master-check');
@@ -701,6 +789,7 @@
 				if (state.notePath) { e.preventDefault(); saveNote(); }
 			}
 		});
+		el('notes-back').addEventListener('click', backToList);
 		el('notes-delete').addEventListener('click', deleteNote);
 		el('notes-search').addEventListener('input', renderList);
 		el('notes-show-footer').addEventListener('change', function () {

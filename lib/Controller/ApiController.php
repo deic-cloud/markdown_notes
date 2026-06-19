@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\MarkdownNotes\Controller;
 
+use OCA\MarkdownNotes\Service\MetaDataBridge;
 use OCA\MarkdownNotes\Service\NotesException;
 use OCA\MarkdownNotes\Service\NotesService;
 use OCA\MarkdownNotes\Service\SystemTagSync;
@@ -20,6 +21,7 @@ class ApiController extends OCSController {
 		IRequest $request,
 		private NotesService $notesService,
 		private SystemTagSync $systemTagSync,
+		private MetaDataBridge $metaBridge,
 		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
@@ -41,8 +43,23 @@ class ApiController extends OCSController {
 
 	#[NoAdminRequired]
 	public function listNotes(string $notebook = '', string $recursive = '', string $tag = ''): DataResponse {
-		return $this->run(fn () => $this->notesService->listNotes(
-			$this->uid(), $notebook, $recursive === '1' || $recursive === 'true', $tag));
+		return $this->run(function () use ($notebook, $recursive, $tag) {
+			$notes = $this->notesService->listNotes(
+				$this->uid(), $notebook, $recursive === '1' || $recursive === 'true', $tag);
+			// When a tag with meta_data fields is the filter, attach editable columns.
+			$columns = [];
+			if ($tag !== '') {
+				$cols = $this->metaBridge->columnsFor($tag);
+				if ($cols !== null && !empty($cols['keys'])) {
+					$columns = $cols['keys'];
+					foreach ($notes as &$n) {
+						$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId']);
+					}
+					unset($n);
+				}
+			}
+			return ['notes' => $notes, 'columns' => $columns];
+		});
 	}
 
 	#[NoAdminRequired]
@@ -85,6 +102,15 @@ class ApiController extends OCSController {
 	#[NoAdminRequired]
 	public function templateInfo(string $path): DataResponse {
 		return $this->run(fn () => $this->notesService->templateInfo($this->uid(), $path));
+	}
+
+	#[NoAdminRequired]
+	public function setMeta(string $path, string $tag, int $keyId, string $value = ''): DataResponse {
+		return $this->run(function () use ($path, $tag, $keyId, $value) {
+			$note = $this->notesService->getNote($this->uid(), $path); // resolves fileid
+			$ok = $this->metaBridge->setValue($tag, (int)$note['fileid'], $keyId, $value);
+			return ['ok' => $ok];
+		});
 	}
 
 	#[NoAdminRequired]

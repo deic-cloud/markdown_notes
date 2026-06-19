@@ -38,12 +38,14 @@
 		<div id="notes-list-context"></div>
 		<div id="notes-selection-bar" style="display:none;"></div>
 		<ul id="notes-list"></ul>
+		<div id="notes-meta-table-wrap" style="display:none;"></div>
 	</div>
 
 	<div id="notes-editor-pane">
 		<div id="notes-editor-empty" class="notes-empty"><?php p($l->t('Select or create a note')); ?></div>
 		<div id="notes-editor-wrap" style="display:none;">
 			<div id="notes-editor-head">
+				<button id="notes-back" type="button" title="<?php p($l->t('Back to list')); ?>">← <?php p($l->t('List')); ?></button>
 				<input type="text" id="notes-title" placeholder="<?php p($l->t('Title')); ?>" />
 				<button id="notes-save" type="button" class="primary"><?php p($l->t('Save')); ?></button>
 				<button id="notes-delete" type="button" title="<?php p($l->t('Delete note')); ?>"><span class="icon-delete"></span></button>

@@ -163,6 +163,7 @@ class NotesService {
 			$rel = $base === '' ? $name : $base . '/' . $name;
 			$out[] = [
 				'path'           => $rel,
+				'fileid'         => $file->getId(),
 				'name'           => $name,
 				'notebook'       => $base,
 				'title'          => $parsed['title'] !== '' ? $parsed['title'] : substr($name, 0, -3),
