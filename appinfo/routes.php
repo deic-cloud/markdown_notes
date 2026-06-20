@@ -5,6 +5,7 @@ declare(strict_types=1);
 return [
 	'routes' => [
 		['name' => 'page#index', 'url' => '/', 'verb' => 'GET'],
+		['name' => 'resource#show', 'url' => '/resource/{id}', 'verb' => 'GET'],
 
 		// Joplin WebDAV sync target — one catch-all per verb (path may contain
 		// slashes). All dispatch to WebDavController::dav.

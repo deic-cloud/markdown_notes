@@ -42,7 +42,16 @@
 	// MathJax can typeset the raw source. This lets a display block ($$…$$ / \[…\])
 	// contain blank lines (markdown would otherwise split it across paragraphs)
 	// and keeps markdown specials (_, *) literal inside math.
+	// Joplin embeds resources as `](:/<32hex>)`; resolve them to our resource
+	// endpoint so images/attachments render inline in the preview.
+	function resolveJoplinResources(text) {
+		var base = (OC.webroot || '') + '/index.php/apps/markdown_notes/resource/';
+		return text.replace(/\]\(:\/([0-9a-f]{32})((?:\s+"[^"]*")?)\)/g, function (m, id, title) {
+			return '](' + base + id + title + ')';
+		});
+	}
 	function renderMarkdownWithMath(text) {
+		text = resolveJoplinResources(text);
 		var store = [];
 		function stash(m) { store.push(m); return '@@MJX' + (store.length - 1) + '@@'; }
 		// In a bare display block, MathJax ignores `\\` (line breaks only work

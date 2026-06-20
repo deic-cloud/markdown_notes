@@ -208,6 +208,25 @@ class JoplinSyncService {
 		return (string)($row['meta'] ?? '');
 	}
 
+	/** The binary bytes of a resource (Joplin .resource/<id> blob), or null. */
+	public function resourceBlob(string $uid, string $id): ?string {
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) {
+			return null;
+		}
+		return $this->store->getContent($uid, '.resource/' . $id);
+	}
+
+	/** MIME type of a resource, read from its stored type-4 metadata item. */
+	public function resourceMime(string $uid, string $id): string {
+		$row = $this->indexRow($uid, $id);
+		if ($row === null || (string)($row['meta'] ?? '') === '') {
+			return 'application/octet-stream';
+		}
+		$f = JoplinItem::parse((string)$row['meta']);
+		$mime = trim((string)($f['mime'] ?? ''));
+		return $mime !== '' ? $mime : 'application/octet-stream';
+	}
+
 	public function deleteItem(string $uid, string $jid): void {
 		$row = $this->indexRow($uid, $jid);
 		if ($row !== null
