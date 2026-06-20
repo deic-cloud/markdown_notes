@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\MarkdownNotes\Controller;
 
 use OCA\MarkdownNotes\Service\JoplinStore;
+use OCA\MarkdownNotes\Service\JoplinSyncService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -32,6 +33,7 @@ class WebDavController extends Controller {
 		string $appName,
 		IRequest $request,
 		private JoplinStore $store,
+		private JoplinSyncService $sync,
 		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
@@ -48,16 +50,35 @@ class WebDavController extends Controller {
 		$path = $this->store->norm($path);
 		$now = $this->nowMs();
 
+		$isItem = $this->sync->isItemPath($path);
+
 		switch ($method) {
 			case 'PROPFIND':
 				return $this->propfind($uid, $path);
 			case 'GET':
 			case 'HEAD':
+				if ($isItem) {
+					$item = $this->sync->getItem($uid, $this->sync->jidFromPath($path));
+					if ($item === null) {
+						return $this->raw('', Http::STATUS_NOT_FOUND);
+					}
+					$resp = $this->raw($method === 'HEAD' ? '' : $item, Http::STATUS_OK);
+					$resp->addHeader('Content-Type', 'text/plain; charset=utf-8');
+					return $resp;
+				}
 				return $this->get($uid, $path, $method === 'HEAD');
 			case 'PUT':
+				if ($isItem) {
+					$this->sync->putItem($uid, $this->sync->jidFromPath($path), $this->body());
+					return $this->raw('', Http::STATUS_CREATED);
+				}
 				$this->store->put($uid, $path, $this->body(), $now);
 				return $this->raw('', Http::STATUS_CREATED);
 			case 'DELETE':
+				if ($isItem) {
+					$this->sync->deleteItem($uid, $this->sync->jidFromPath($path));
+					return $this->raw('', Http::STATUS_NO_CONTENT);
+				}
 				$this->store->delete($uid, $path);
 				return $this->raw('', Http::STATUS_NO_CONTENT);
 			case 'MKCOL':
@@ -90,14 +111,35 @@ class WebDavController extends Controller {
 	private function propfind(string $uid, string $path): Response {
 		$depth = $this->request->getHeader('Depth');
 		$depth = ($depth === '' ? '1' : $depth);
+
+		// Stat of a single item file (jid.md) is synthesized from the index.
+		if ($this->sync->isItemPath($path)) {
+			$item = $this->sync->getItem($uid, $this->sync->jidFromPath($path));
+			if ($item === null) {
+				return $this->multiStatusResponse('');
+			}
+			return $this->multiStatusResponse($this->responseXml(
+				['path' => $path, 'is_dir' => false, 'size' => strlen($item), 'updated_ms' => 0]));
+		}
+
 		$self = $this->store->stat($uid, $path);
+		// The root always exists (even with no opaque files yet).
+		if ($self === null && $path !== '') {
+			return $this->multiStatusResponse('');
+		}
 		if ($self === null) {
-			return $this->raw($this->multistatus([]), 404); // nothing here
+			$self = ['path' => '', 'is_dir' => true, 'size' => 0, 'updated_ms' => 0];
 		}
 		$entries = [$self];
 		if ($depth !== '0' && $self['is_dir']) {
 			foreach ($this->store->children($uid, $path) as $c) {
 				$entries[] = $c;
+			}
+			// At the root, also list the synthesized Joplin item files.
+			if ($path === '') {
+				foreach ($this->sync->enumerate($uid) as $it) {
+					$entries[] = ['path' => $it['path'], 'is_dir' => false, 'size' => $it['size'], 'updated_ms' => $it['updated_ms']];
+				}
 			}
 		}
 		$responses = '';

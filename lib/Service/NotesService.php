@@ -39,6 +39,11 @@ class NotesService {
 		$this->config->setUserValue($uid, 'markdown_notes', 'notesdir', trim($name, '/') ?: 'Notes');
 	}
 
+	/** The user's notes root folder (created if missing). Public for the Joplin sync layer. */
+	public function getNotesFolder(string $uid): Folder {
+		return $this->notesFolder($uid);
+	}
+
 	private function notesFolder(string $uid): Folder {
 		$userFolder = $this->rootFolder->getUserFolder($uid);
 		$name = $this->notesFolderName($uid);

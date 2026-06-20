@@ -161,6 +161,11 @@ class SystemTagSync {
 		return array_map(static fn (ISystemTag $t) => (int)$t->getId(), array_values($this->managedTags($fileid)));
 	}
 
+	/** Public wrapper: ensure a user-visible+assignable system tag exists, return its id. */
+	public function ensureTagPublic(string $name): int {
+		return $this->ensureTag($name);
+	}
+
 	private function ensureTag(string $name): int {
 		try {
 			return (int)$this->tagManager->getTag($name, true, true)->getId();
