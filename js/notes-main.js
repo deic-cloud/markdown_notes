@@ -357,10 +357,16 @@
 		}
 		return '<input type="text" data-keyid="' + col.id + '" value="' + esc(val) + '" />';
 	}
-	function saveMeta(n, keyId, value) {
+	function flashCell(ctrl, ok) {
+		if (!ctrl) { return; }
+		var cls = ok ? 'notes-saved-ok' : 'notes-saved-err';
+		ctrl.classList.add(cls);
+		setTimeout(function () { ctrl.classList.remove(cls); }, ok ? 700 : 2500);
+	}
+	function saveMeta(n, keyId, value, ctrl) {
 		post('/note/meta', p('path', n.path, 'tag', state.tag, 'keyId', String(keyId), 'value', value))
-			.then(function () { if (!n.cols) { n.cols = {}; } n.cols[keyId] = value; })
-			.catch(showError);
+			.then(function () { if (!n.cols) { n.cols = {}; } n.cols[keyId] = value; flashCell(ctrl, true); })
+			.catch(function (e) { flashCell(ctrl, false); showError(e); });
 	}
 	// Sort the table rows by the clicked column (title / a metadata field /
 	// status), empties last, numeric-aware for number-like values.
@@ -467,7 +473,7 @@
 			}
 			tr.querySelectorAll('[data-keyid]').forEach(function (ctrl) {
 				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
-				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value); });
+				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value, ctrl); });
 			});
 			// A draggable <tr> otherwise hijacks mouse-down on its inputs (can't
 			// place the caret / use the date picker). Suspend row-drag while a

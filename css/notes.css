@@ -148,6 +148,8 @@
 .notes-meta-table .notes-due-input.notes-overdue { color: var(--color-error, #d33); border-color: var(--color-error, #d33); }
 .notes-meta-table .notes-todo-box { font-size: 1.2em; margin: 0; }
 .notes-meta-table input[type="text"], .notes-meta-table select { width: 100%; min-width: 90px; box-sizing: border-box; }
+.notes-meta-table .notes-saved-ok { outline: 2px solid var(--color-success, #46ba61); outline-offset: -2px; transition: outline-color .3s; }
+.notes-meta-table .notes-saved-err { outline: 2px solid var(--color-error, #d33); outline-offset: -2px; }
 #app-content.notes-meta-mode #notes-list-pane { width: 100%; min-width: 0; border-right: none; }
 #app-content.notes-meta-mode #notes-editor-pane { display: none; }
 #app-content.notes-meta-mode.notes-show-note #notes-list-pane { display: none; }

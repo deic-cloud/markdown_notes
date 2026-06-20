@@ -5,7 +5,7 @@
 	<name>Notes</name>
 	<summary>Markdown notes as real files, with Joplin synchronisation</summary>
 	<description>A web UI for markdown notes stored as ordinary .md files in a real folder tree — notebooks are folders, tags live in a short note footer, and nothing is hidden in per-item sidecar files, so notes stay editable anywhere. Supports templates (with variable substitution) for things like lab notebooks, todos via tags, and LaTeX/mhchem rendering. A companion sync layer keeps the same files in sync with Joplin on desktop and mobile.</description>
-	<version>1.15.0</version>
+	<version>1.15.1</version>
 	<licence>agpl</licence>
 	<author mail="fror@dtu.dk">Frederik Orellana, DTU</author>
 	<namespace>MarkdownNotes</namespace>
