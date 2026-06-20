@@ -223,6 +223,23 @@ class NotesService {
 		return $this->getNote($uid, $rel);
 	}
 
+	/** Convert a note to/from a to-do. Clearing drops all to-do footer keys. */
+	public function setTodo(string $uid, string $rel, bool $isTodo): array {
+		$file = $this->relNode($uid, $rel);
+		$parsed = NoteFormat::parse($this->readContent($file));
+		$meta = $parsed['meta'];
+		if ($isTodo) {
+			$meta['is_todo'] = '1';
+		} else {
+			$meta['is_todo'] = null;
+			$meta['todo_due'] = null;
+			$meta['todo_completed'] = null;
+		}
+		$meta['updated_time'] = $this->now();
+		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		return $this->getNote($uid, $rel);
+	}
+
 	/** Set (or clear, when $dueMs === '') a to-do's due date (Joplin epoch-ms). */
 	public function setDue(string $uid, string $rel, string $dueMs): array {
 		$file = $this->relNode($uid, $rel);

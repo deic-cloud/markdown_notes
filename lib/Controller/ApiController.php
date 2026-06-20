@@ -139,6 +139,12 @@ class ApiController extends OCSController {
 	}
 
 	#[NoAdminRequired]
+	public function setTodo(string $path, string $is_todo = '1'): DataResponse {
+		return $this->run(fn () => $this->notesService->setTodo(
+			$this->uid(), $path, $is_todo === '1' || $is_todo === 'true'));
+	}
+
+	#[NoAdminRequired]
 	public function templateInfo(string $path): DataResponse {
 		return $this->run(fn () => $this->notesService->templateInfo($this->uid(), $path));
 	}

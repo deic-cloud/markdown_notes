@@ -59,9 +59,8 @@
 				<datalist id="notes-tags-datalist"></datalist>
 				<label class="notes-footer-toggle"><input type="checkbox" id="notes-show-footer" /> <?php p($l->t('Show metadata footer')); ?></label>
 			</div>
-			<div id="notes-todo-edit">
-				<label class="notes-todo-toggle"><input type="checkbox" id="notes-is-todo" /> <?php p($l->t('To-do')); ?></label>
-				<label id="notes-due-wrap" style="display:none;"><?php p($l->t('Due:')); ?>
+			<div id="notes-todo-edit" style="display:none;">
+				<label id="notes-due-wrap"><?php p($l->t('Due:')); ?>
 					<input type="datetime-local" id="notes-due" />
 					<button type="button" id="notes-due-clear" title="<?php p($l->t('Clear due date')); ?>">×</button>
 				</label>

@@ -201,6 +201,12 @@
 		lbl.appendChild(m);
 		lbl.appendChild(document.createTextNode(' ' + ctx));
 		cEl.appendChild(lbl);
+		// Bulk-actions menu for the selected notes (populated in updateSelectionUI).
+		var bulk = document.createElement('select');
+		bulk.id = 'notes-bulk-actions';
+		bulk.className = 'notes-bulk-actions';
+		bulk.addEventListener('change', onBulkAction);
+		cEl.appendChild(bulk);
 		return get('/notes', params).then(function (d) {
 			state.notes = Array.isArray(d) ? d : (d.notes || []);
 			state.columns = (d && d.columns) ? d.columns : [];
@@ -528,12 +534,13 @@
 	}
 	function backToList() { state.metaView = 'list'; applyLayout(); }
 	// Reflect the note's to-do state into the editor controls.
+	// The Due row shows only when the note is already a to-do; conversion to/from
+	// a to-do is done from the notes-list Actions menu, not here.
 	function applyTodoFields(meta) {
 		meta = meta || {};
 		var isTodo = !!meta.is_todo && meta.is_todo !== '0';
-		el('notes-is-todo').checked = isTodo;
+		el('notes-todo-edit').style.display = isTodo ? 'flex' : 'none';
 		el('notes-due').value = (isTodo && meta.todo_due && Number(meta.todo_due) > 0) ? msToInput(meta.todo_due) : '';
-		el('notes-due-wrap').style.display = isTodo ? 'inline-flex' : 'none';
 	}
 	function renderFooter(meta) {
 		var legend = '# id: stable note id  ·  created_time/updated_time  ·  is_todo/todo_due/todo_completed  ·  tags\n';
@@ -590,9 +597,9 @@
 
 	function saveNote() {
 		if (!state.notePath) { return; }
-		var isTodo = el('notes-is-todo').checked;
-		var params = p('path', state.notePath, 'title', el('notes-title').value, 'body', mde.value(),
-			'is_todo', isTodo ? '1' : '0', 'todo_due', isTodo ? inputToMs(el('notes-due').value) : '');
+		// To-do state and due date are managed separately (Actions menu / Due
+		// field), so a plain save leaves them untouched.
+		var params = p('path', state.notePath, 'title', el('notes-title').value, 'body', mde.value());
 		state.editorTags.forEach(function (t) { params.append('tags[]', t); });
 		el('notes-status').textContent = 'Saving…';
 		post('/note/save', params).then(function (note) {
@@ -826,6 +833,52 @@
 			bar.style.display = 'none';
 			bar.innerHTML = '';
 		}
+		refreshBulkMenu();
+	}
+	// Actions available on the selected notes; offered conditionally.
+	function refreshBulkMenu() {
+		var bulk = el('notes-bulk-actions');
+		if (!bulk) { return; }
+		var sel = state.notes.filter(function (n) { return state.selected.indexOf(n.path) >= 0; });
+		var any = sel.length > 0;
+		var allTodos = any && sel.every(function (n) { return n.is_todo; });
+		var allPlain = any && sel.every(function (n) { return !n.is_todo; });
+		var opts = '<option value="">' + esc(t('markdown_notes', 'Actions…')) + '</option>';
+		if (any) {
+			if (allPlain) { opts += '<option value="to-todo">' + esc(t('markdown_notes', 'Convert to to-do')) + '</option>'; }
+			if (allTodos) { opts += '<option value="to-note">' + esc(t('markdown_notes', 'Convert to note')) + '</option>'; }
+			opts += '<option value="delete">' + esc(t('markdown_notes', 'Delete')) + '</option>';
+		}
+		bulk.innerHTML = opts;
+		bulk.disabled = !any;
+	}
+	// Run an action over the selected paths sequentially, then refresh.
+	function bulkRun(paths, fn) {
+		return paths.reduce(function (chain, pth) {
+			return chain.then(function () { return fn(pth).catch(showError); });
+		}, Promise.resolve()).then(function () { state.selected = []; return refreshAfterChange(); });
+	}
+	function onBulkAction() {
+		var bulk = el('notes-bulk-actions');
+		var action = bulk.value;
+		bulk.value = '';
+		var paths = state.selected.slice();
+		if (!action || !paths.length) { return; }
+		if (action === 'to-todo') {
+			bulkRun(paths, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '1')); });
+		} else if (action === 'to-note') {
+			bulkRun(paths, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '0')); });
+		} else if (action === 'delete') {
+			ncConfirm(t('markdown_notes', 'Delete the {n} selected notes?').replace('{n}', paths.length), t('markdown_notes', 'Delete'), function () {
+				bulkRun(paths, function (pth) { return post('/note/delete', p('path', pth)); }).then(function () {
+					if (paths.indexOf(state.notePath) >= 0) {
+						state.notePath = null;
+						el('notes-editor-wrap').style.display = 'none';
+						el('notes-editor-empty').style.display = 'block';
+					}
+				});
+			});
+		}
 	}
 	// Drag the checked set if the dragged note is part of it; otherwise just this one.
 	function onNoteDragStart(e, path, li) {
@@ -919,11 +972,16 @@
 		el('notes-sort').addEventListener('change', onSortChange);
 		el('notes-sort-dir').addEventListener('click', toggleSortDir);
 		updateSortDisplay();
-		// To-do toggle reveals the due-date picker; clearing the due date.
-		el('notes-is-todo').addEventListener('change', function () {
-			el('notes-due-wrap').style.display = this.checked ? 'inline-flex' : 'none';
+		// The editor Due field (shown only for to-dos) saves immediately.
+		el('notes-due').addEventListener('change', function () {
+			if (!state.notePath) { return; }
+			post('/note/due', p('path', state.notePath, 'due', inputToMs(this.value))).then(refreshAfterChange).catch(showError);
 		});
-		el('notes-due-clear').addEventListener('click', function () { el('notes-due').value = ''; });
+		el('notes-due-clear').addEventListener('click', function () {
+			if (!state.notePath) { return; }
+			el('notes-due').value = '';
+			post('/note/due', p('path', state.notePath, 'due', '')).then(refreshAfterChange).catch(showError);
+		});
 		el('notes-save').addEventListener('click', saveNote);
 		// Ctrl+S (Linux/Win) / Cmd+S (Mac) saves the open note instead of the
 		// browser's "save page" dialog. Document-level so it works whether focus

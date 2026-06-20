@@ -39,8 +39,11 @@
 .notes-toolbar-row #notes-template { flex: 0 1 auto; width: 140px; min-width: 0; }
 #notes-new-note { white-space: nowrap; }
 #notes-list-context { padding: 6px 12px; color: var(--color-text-maxcontrast); font-size: .9em; }
+#notes-list-context { display: flex; align-items: center; gap: 10px; }
 .notes-selectall { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .notes-selectall input { margin: 0; }
+.notes-bulk-actions { margin-left: auto; max-width: 150px; font-size: .9em; }
+.notes-bulk-actions:disabled { opacity: .5; }
 #notes-list { flex: 1; overflow-y: auto; margin: 0; }
 #notes-list li {
 	padding: 10px 12px; border-bottom: 1px solid var(--color-border); cursor: pointer;
