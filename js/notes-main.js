@@ -323,12 +323,21 @@
 		});
 	}
 	// Editable metadata table (meta_data columns) — full-width over the editor.
+	// A 'date' meta_data field is a datetime-local: a calendar plus a time you can
+	// set by hand. Date-only stored values render at 00:00 (time left to add).
+	function toDateTimeLocal(v) {
+		if (!v) { return ''; }
+		return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v + 'T00:00' : v;
+	}
 	function metaCellHtml(col, val) {
 		if (col.type === 'controlled') {
 			var opts = '<option value=""></option>' + (col.options || []).map(function (o) {
 				return '<option' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>';
 			}).join('');
 			return '<select data-keyid="' + col.id + '">' + opts + '</select>';
+		}
+		if (col.type === 'date') {
+			return '<input type="datetime-local" data-keyid="' + col.id + '" value="' + esc(toDateTimeLocal(val)) + '" />';
 		}
 		return '<input type="text" data-keyid="' + col.id + '" value="' + esc(val) + '" />';
 	}

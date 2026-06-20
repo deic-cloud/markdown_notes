@@ -100,16 +100,22 @@ class MetaDataBridge {
 			if (!$tagId) {
 				return null;
 			}
-			$mdType = $type === 'dropdown' ? 'controlled' : '';
+			// Map a template variable type to a meta_data field type:
+			// dropdown -> controlled (allowed values), date -> date (datetime
+			// picker), everything else -> plain text.
+			$mdType = $type === 'dropdown' ? 'controlled' : ($type === 'date' ? 'date' : '');
 			$allowed = ($type === 'dropdown' && !empty($options)) ? (string)json_encode(array_values($options)) : '';
 			foreach ($ts->getKeys((int)$tagId) as $k) {
 				if ($k['name'] === $name) {
 					$kid = (int)$k['id'];
 					// Bring an existing field in line with the template's current
-					// definition (e.g. a field first created as plain text, later
-					// given a dropdown type in the template).
-					if ($mdType === 'controlled'
-						&& ((string)($k['type'] ?? '') !== $mdType || (string)($k['allowed_values'] ?? '') !== $allowed)) {
+					// definition (e.g. first created as plain text, later given a
+					// dropdown/date type in the template).
+					$needsUpdate = $mdType !== '' && (string)($k['type'] ?? '') !== $mdType;
+					if ($mdType === 'controlled' && (string)($k['allowed_values'] ?? '') !== $allowed) {
+						$needsUpdate = true;
+					}
+					if ($needsUpdate) {
 						$ts->updateKey((int)$tagId, $kid, $name, $mdType, $allowed);
 					}
 					return $kid;
