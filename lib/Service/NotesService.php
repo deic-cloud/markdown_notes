@@ -347,8 +347,13 @@ class NotesService {
 				continue;
 			}
 			$tpl = TemplateFormat::parse($this->readContent($file));
-			// Render built-ins for a friendly dropdown label (no literal {{date}}).
-			$title = $tpl['title'] !== '' ? TemplateFormat::render($tpl['title'], [], time()) : substr($name, 0, -3);
+			// Picker label: strip the title's variables (and any trailing
+			// separator) so the dropdown shows "Diary", not "Diary — 2026-06-20".
+			$label = preg_replace('/\{\{#custom_datetime\}\}.*?\{\{\/custom_datetime\}\}/s', '', $tpl['title']);
+			$label = preg_replace('/\{\{.*?\}\}/', '', (string)$label);
+			$label = preg_replace('/[\s\x{2014}\x{00B7}:,\-]+$/u', '', trim((string)$label));
+			$label = trim((string)$label);
+			$title = $label !== '' ? $label : substr($name, 0, -3);
 			$out[] = ['path' => 'Templates/' . $name, 'title' => $title, 'hasVars' => !empty($tpl['variables'])];
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['title'], $b['title']));
