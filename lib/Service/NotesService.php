@@ -347,14 +347,9 @@ class NotesService {
 				continue;
 			}
 			$tpl = TemplateFormat::parse($this->readContent($file));
-			// Picker label: strip the title's variables (and any trailing
-			// separator) so the dropdown shows "Diary", not "Diary — 2026-06-20".
-			$label = preg_replace('/\{\{#custom_datetime\}\}.*?\{\{\/custom_datetime\}\}/s', '', $tpl['title']);
-			$label = preg_replace('/\{\{.*?\}\}/', '', (string)$label);
-			$label = preg_replace('/[\s\x{2014}\x{00B7}:,\-]+$/u', '', trim((string)$label));
-			$label = trim((string)$label);
-			$title = $label !== '' ? $label : substr($name, 0, -3);
-			$out[] = ['path' => 'Templates/' . $name, 'title' => $title, 'hasVars' => !empty($tpl['variables'])];
+			// Picker label = the file's basename, so it's obvious which file to
+			// edit to change a given template.
+			$out[] = ['path' => 'Templates/' . $name, 'title' => substr($name, 0, -3), 'hasVars' => !empty($tpl['variables'])];
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['title'], $b['title']));
 		return $out;

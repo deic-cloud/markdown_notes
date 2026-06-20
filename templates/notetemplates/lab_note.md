@@ -1,5 +1,5 @@
 ---
-template_title: Laboratory note — {{date}}
+template_title: Lab note — {{date}}
 template_tags: lab_note
 project_name:
   label: Project name
