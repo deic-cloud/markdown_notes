@@ -5,7 +5,7 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' } };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: {} };
 	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
 	function msToInput(ms) {
 		var d = new Date(Number(ms));
@@ -182,11 +182,12 @@
 	// Context = a notebook (or "all"); a tag is a FILTER layered on top of it
 	// (refines, doesn't replace). Selecting a context clears the filter; clicking
 	// a tag toggles it.
-	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; loadList(); }
-	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; loadList(); }
-	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; loadList(); }
+	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; loadList(); }
+	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; loadList(); }
+	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; state.colFilters = {}; loadList(); }
 
 	function loadList() {
+		closeColMenu();
 		setActiveNav();
 		var params = state.mode === 'all' ? p('recursive', '1') : p('notebook', state.notebook);
 		if (state.tag) { params.append('tag', state.tag); }
@@ -354,9 +355,21 @@
 	}
 	// Sort the table rows by the clicked column (title / a metadata field /
 	// status), empties last, numeric-aware for number-like values.
+	// A row passes if, for every controlled column with an active filter, its
+	// value is not among that column's hidden values ('' = the "(none)" entry).
+	function passesColFilters(n) {
+		for (var keyId in state.colFilters) {
+			var hidden = state.colFilters[keyId];
+			if (hidden && hidden.length) {
+				var v = (n.cols && n.cols[keyId] != null) ? String(n.cols[keyId]) : '';
+				if (hidden.indexOf(v) >= 0) { return false; }
+			}
+		}
+		return true;
+	}
 	function metaSorted() {
 		var q = (el('notes-search').value || '').toLowerCase();
-		var arr = state.notes.filter(function (n) { return noteMatches(n, q); });
+		var arr = state.notes.filter(function (n) { return noteMatches(n, q) && passesColFilters(n); });
 		var key = state.metaSort.key, dir = state.metaSort.dir === 'asc' ? 1 : -1;
 		function statusVal(n) { return !n.is_todo ? 2 : (n.todo_completed ? 1 : 0); }
 		function cellVal(n) { var id = key.slice(5); return (n.cols && n.cols[id] != null) ? String(n.cols[id]) : ''; }
@@ -390,15 +403,21 @@
 		wrap.innerHTML = '';
 		var table = document.createElement('table');
 		table.className = 'notes-meta-table';
-		function th(key, label) {
+		function th(key, label, isMenu, isFiltered) {
 			var active = state.metaSort.key === key;
 			var arrow = active ? (state.metaSort.dir === 'asc' ? ' ↑' : ' ↓') : '';
-			return '<th class="sortable' + (active ? ' active' : '') + '" data-sort="' + esc(key) + '">' + esc(label) + arrow + '</th>';
+			var caret = isMenu ? ' ▾' : '';
+			var cls = 'sortable' + (active ? ' active' : '') + (isFiltered ? ' filtered' : '');
+			return '<th class="' + cls + '" data-sort="' + esc(key) + '">' + esc(label) + arrow + caret + '</th>';
 		}
 		// Native to-do columns (Due + Status) appear only when the list has to-dos.
 		var hasTodo = state.notes.some(function (n) { return n.is_todo; });
 		var head = '<tr><th class="c-sel"></th>' + th('title', t('markdown_notes', 'Title')) +
-			state.columns.map(function (c) { return th('meta:' + c.id, c.name); }).join('') +
+			state.columns.map(function (c) {
+				var menu = c.type === 'controlled';
+				var filtered = !!(state.colFilters[c.id] && state.colFilters[c.id].length);
+				return th('meta:' + c.id, c.name, menu, filtered);
+			}).join('') +
 			(hasTodo ? th('due', t('markdown_notes', 'Due')) + th('status', t('markdown_notes', 'Status')) : '') + '</tr>';
 		table.innerHTML = '<thead>' + head + '</thead>';
 		var tbody = document.createElement('tbody');
@@ -447,9 +466,69 @@
 		});
 		table.appendChild(tbody);
 		table.querySelectorAll('th.sortable').forEach(function (h) {
-			h.addEventListener('click', function () { sortByHeader(h.dataset.sort); });
+			h.addEventListener('click', function () {
+				// Controlled columns open a sort+filter menu; others toggle sort.
+				var col = colForKey(h.dataset.sort);
+				if (col && col.type === 'controlled') { openColMenu(col, h); }
+				else { sortByHeader(h.dataset.sort); }
+			});
 		});
 		wrap.appendChild(table);
+	}
+	function colForKey(key) {
+		if (key.indexOf('meta:') !== 0) { return null; }
+		var id = key.slice(5);
+		var found = null;
+		state.columns.forEach(function (c) { if (String(c.id) === id) { found = c; } });
+		return found;
+	}
+	// Per-column menu (controlled columns): sort + a checkbox per value to filter.
+	function closeColMenu() {
+		var m = document.querySelector('.notes-col-menu');
+		if (m) { m.parentNode.removeChild(m); }
+		document.removeEventListener('click', colMenuOutside, true);
+	}
+	function colMenuOutside(e) {
+		var m = document.querySelector('.notes-col-menu');
+		if (m && !m.contains(e.target)) { closeColMenu(); }
+	}
+	function openColMenu(col, headerEl) {
+		closeColMenu();
+		var key = 'meta:' + col.id;
+		var menu = el2('div', 'notes-col-menu');
+		function sortItem(dir, label) {
+			var it = el2('div', 'notes-col-menu-item' + (state.metaSort.key === key && state.metaSort.dir === dir ? ' active' : ''));
+			it.textContent = label;
+			it.addEventListener('click', function () { state.metaSort = { key: key, dir: dir }; renderMetaTable(); });
+			return it;
+		}
+		menu.appendChild(sortItem('asc', '↑ ' + t('markdown_notes', 'Sort ascending')));
+		menu.appendChild(sortItem('desc', '↓ ' + t('markdown_notes', 'Sort descending')));
+		menu.appendChild(el2('div', 'notes-col-menu-sep'));
+		var rows = (col.options || []).map(function (v) { return { val: v, label: v }; });
+		rows.push({ val: '', label: t('markdown_notes', '(none)') });
+		rows.forEach(function (r) {
+			var hidden = state.colFilters[col.id] || [];
+			var lab = el2('label', 'notes-col-menu-check');
+			var cb = document.createElement('input');
+			cb.type = 'checkbox';
+			cb.checked = hidden.indexOf(r.val) < 0;
+			cb.addEventListener('change', function () {
+				var h = (state.colFilters[col.id] || []).slice();
+				if (cb.checked) { h = h.filter(function (x) { return x !== r.val; }); }
+				else if (h.indexOf(r.val) < 0) { h.push(r.val); }
+				if (h.length) { state.colFilters[col.id] = h; } else { delete state.colFilters[col.id]; }
+				renderMetaTable();
+			});
+			lab.appendChild(cb);
+			lab.appendChild(document.createTextNode(' ' + r.label));
+			menu.appendChild(lab);
+		});
+		var rect = headerEl.getBoundingClientRect();
+		menu.style.left = Math.round(rect.left) + 'px';
+		menu.style.top = Math.round(rect.bottom) + 'px';
+		document.body.appendChild(menu);
+		setTimeout(function () { document.addEventListener('click', colMenuOutside, true); }, 0);
 	}
 	function toggleCompleted(path, completed) {
 		post('/note/complete', p('path', path, 'completed', completed ? '1' : '0'))
