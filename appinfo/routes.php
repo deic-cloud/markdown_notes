@@ -5,6 +5,25 @@ declare(strict_types=1);
 return [
 	'routes' => [
 		['name' => 'page#index', 'url' => '/', 'verb' => 'GET'],
+
+		// Joplin WebDAV sync target — one catch-all per verb (path may contain
+		// slashes). All dispatch to WebDavController::dav.
+		['name' => 'webDav#dav', 'url' => '/joplin', 'verb' => 'PROPFIND',
+			'postfix' => 'root-propfind'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'GET',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'get'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'HEAD',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'head'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'PUT',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'put'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'DELETE',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'delete'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'PROPFIND',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'propfind'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'MKCOL',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'mkcol'],
+		['name' => 'webDav#dav', 'url' => '/joplin/{path}', 'verb' => 'MOVE',
+			'requirements' => ['path' => '.*'], 'defaults' => ['path' => ''], 'postfix' => 'move'],
 	],
 	'ocs' => [
 		['name' => 'api#tree',           'url' => '/api/v1/tree',            'verb' => 'GET'],
