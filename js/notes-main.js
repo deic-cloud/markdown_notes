@@ -460,6 +460,13 @@
 				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
 				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value); });
 			});
+			// A draggable <tr> otherwise hijacks mouse-down on its inputs (can't
+			// place the caret / use the date picker). Suspend row-drag while a
+			// field is focused; restore on blur.
+			tr.querySelectorAll('input, select').forEach(function (ctrl) {
+				ctrl.addEventListener('mousedown', function (e) { e.stopPropagation(); tr.draggable = false; });
+				ctrl.addEventListener('blur', function () { tr.draggable = true; });
+			});
 			tr.addEventListener('dragstart', function (e) { onNoteDragStart(e, n.path, tr); });
 			tr.addEventListener('dragend', function () { tr.classList.remove('dragging'); });
 			tbody.appendChild(tr);
