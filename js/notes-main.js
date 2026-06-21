@@ -353,7 +353,15 @@
 			return '<select data-keyid="' + col.id + '">' + opts + '</select>';
 		}
 		if (col.type === 'date') {
-			return '<input type="datetime-local" data-keyid="' + col.id + '" value="' + esc(toDateTimeLocal(val)) + '" />';
+			// A native datetime-local only yields a value when BOTH date and time
+			// are filled — picking just the date saved nothing. Use a date picker
+			// (always valid on pick) plus an optional time (defaults to 00:00).
+			var dv = '', tv = '';
+			if (/^\d{4}-\d{2}-\d{2}/.test(val)) { dv = val.slice(0, 10); tv = (val.slice(11, 16) || ''); }
+			return '<span class="mn-datecell" data-keyid="' + col.id + '">'
+				+ '<input type="date" class="mn-date" value="' + esc(dv) + '" />'
+				+ '<input type="time" class="mn-time" value="' + esc(tv) + '" title="' + esc(t('markdown_notes', 'Time (optional)')) + '" />'
+				+ '</span>';
 		}
 		return '<input type="text" data-keyid="' + col.id + '" value="' + esc(val) + '" />';
 	}
@@ -471,14 +479,28 @@
 					post('/note/due', p('path', n.path, 'due', inputToMs(dueInput.value))).then(refreshAfterChange).catch(showError);
 				});
 			}
-			tr.querySelectorAll('[data-keyid]').forEach(function (ctrl) {
+			// Plain/controlled fields: save on change (date cells handled below).
+			tr.querySelectorAll('input[data-keyid], select[data-keyid]').forEach(function (ctrl) {
 				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
 				ctrl.addEventListener('change', function () { saveMeta(n, Number(ctrl.dataset.keyid), ctrl.value, ctrl); });
+			});
+			// Date cells: combine the date + optional time into one stored value
+			// (date alone -> 00:00). Saving date-only never loses to an empty pick.
+			tr.querySelectorAll('.mn-datecell').forEach(function (cell) {
+				var keyid = Number(cell.dataset.keyid);
+				var dEl = cell.querySelector('.mn-date'), tEl = cell.querySelector('.mn-time');
+				var save = function () {
+					var v = dEl.value ? (dEl.value + 'T' + (tEl.value || '00:00')) : '';
+					saveMeta(n, keyid, v, cell);
+				};
+				dEl.addEventListener('change', save);
+				tEl.addEventListener('change', save);
 			});
 			// A draggable <tr> otherwise hijacks mouse-down on its inputs (can't
 			// place the caret / use the date picker). Suspend row-drag while a
 			// field is focused; restore on blur.
 			tr.querySelectorAll('input, select').forEach(function (ctrl) {
+				ctrl.addEventListener('click', function (e) { e.stopPropagation(); });
 				ctrl.addEventListener('mousedown', function (e) { e.stopPropagation(); tr.draggable = false; });
 				ctrl.addEventListener('blur', function () { tr.draggable = true; });
 			});
