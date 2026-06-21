@@ -6,6 +6,7 @@ return [
 	'routes' => [
 		['name' => 'page#index', 'url' => '/', 'verb' => 'GET'],
 		['name' => 'resource#show', 'url' => '/resource/{id}', 'verb' => 'GET'],
+		['name' => 'resource#create', 'url' => '/resource', 'verb' => 'POST'],
 
 		// Joplin WebDAV sync target — one catch-all per verb (path may contain
 		// slashes). All dispatch to WebDavController::dav.

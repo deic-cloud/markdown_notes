@@ -61,6 +61,9 @@
 #notes-list .notes-item-excerpt { color: var(--color-text-maxcontrast); font-size: .85em; margin-top: 2px;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #notes-list .notes-item-tags { margin-top: 4px; }
+/* Open-note location/breadcrumb under the editor header. */
+.notes-location { color: var(--color-text-maxcontrast); font-size: .85em; margin: 2px 0 4px;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Uncoloured tags are outlined (transparent + border), like the meta_data app;
    an explicit systemtag colour fills the pill (white text) via inline style. */
 .notes-tag { display: inline-block; font-size: .75em; padding: 3px 8px; margin-right: 4px;

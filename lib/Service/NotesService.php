@@ -26,6 +26,7 @@ class NotesService {
 		private IRootFolder $rootFolder,
 		private IConfig $config,
 		private IUserManager $userManager,
+		private JoplinIndex $index,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -109,7 +110,9 @@ class NotesService {
 		$name = $this->uniqueName($parent, $name, true);
 		$parent->newFolder($name);
 		$rel = trim($parentRel, '/');
-		return ['path' => $rel === '' ? $name : $rel . '/' . $name, 'name' => $name];
+		$path = $rel === '' ? $name : $rel . '/' . $name;
+		$this->indexFolderAfterWrite($uid, $path);
+		return ['path' => $path, 'name' => $name];
 	}
 
 	public function deleteNotebook(string $uid, string $rel): void {
@@ -118,13 +121,20 @@ class NotesService {
 			throw new NotesException('Refusing to delete this folder.');
 		}
 		$this->relNode($uid, $rel)->delete();
+		$this->deindexTree($uid, $rel);
 	}
 
 	public function rename(string $uid, string $rel, string $targetRel): array {
 		$node = $this->relNode($uid, $rel);
 		$folder = $this->notesFolder($uid);
+		$rel = trim($rel, '/');
 		$targetRel = trim($targetRel, '/');
+		$isFolder = $node instanceof Folder;
 		$node->move($folder->getPath() . '/' . $targetRel);
+		$this->repathIndex($uid, $rel, $targetRel);
+		// A depth change alters the `../` count of relative image links, so rebase
+		// the moved note's body (or every note under a moved notebook).
+		$this->rebaseMovedLinks($uid, $rel, $targetRel, $isFolder);
 		return ['path' => $targetRel];
 	}
 
@@ -225,6 +235,7 @@ class NotesService {
 			}
 		}
 		$file->putContent(NoteFormat::serialize($title, $body, $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -242,6 +253,7 @@ class NotesService {
 		}
 		$meta['updated_time'] = $this->now();
 		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -254,6 +266,7 @@ class NotesService {
 		$meta['todo_due'] = $dueMs !== '' ? $dueMs : null;
 		$meta['updated_time'] = $this->now();
 		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -268,6 +281,7 @@ class NotesService {
 		$meta['todo_completed'] = $completed ? (string)$this->nowMs() : null;
 		$meta['updated_time'] = $this->now();
 		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -282,6 +296,7 @@ class NotesService {
 			$meta = ['id' => $this->newId(), 'created_time' => $meta['updated_time']] + $meta;
 		}
 		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -294,6 +309,7 @@ class NotesService {
 		$meta = NoteFormat::withTags($parsed['meta'], $tags);
 		$meta['updated_time'] = $this->now();
 		$file->putContent(NoteFormat::serialize($parsed['title'], $parsed['body'], $meta));
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
 		return $this->getNote($uid, $rel);
 	}
 
@@ -331,11 +347,222 @@ class NotesService {
 		$fname = $this->uniqueName($parent, $this->sanitizeName($title) . '.md', false);
 		$parent->newFile($fname, NoteFormat::serialize($title, $body, $meta));
 		$base = trim($notebookRel, '/');
-		return $this->getNote($uid, $base === '' ? $fname : $base . '/' . $fname);
+		$rel = $base === '' ? $fname : $base . '/' . $fname;
+		$this->indexNoteAfterWrite($uid, $rel, $meta);
+		return $this->getNote($uid, $rel);
 	}
 
 	public function deleteNote(string $uid, string $rel): void {
 		$this->relNode($uid, $rel)->delete();
+		$this->deindexNote($uid, $rel);
+	}
+
+	// ── Joplin index maintenance ──────────────────────────────────────────────
+	// Keep the markdown_notes_joplin index in step with web-UI edits so notes,
+	// notebooks and tags created/changed here stay visible to a Joplin download
+	// (the index is otherwise only written by incoming Joplin uploads). Failures
+	// are logged but must never block the underlying note operation.
+
+	private function indexNoteAfterWrite(string $uid, string $rel, array $meta): void {
+		$jid = (string)($meta['id'] ?? '');
+		if ($jid === '') {
+			return;
+		}
+		$rel = trim($rel, '/');
+		try {
+			$updatedMs = isset($meta['updated_time']) && $meta['updated_time'] !== ''
+				? JoplinItem::timeToMs((string)$meta['updated_time'])
+				: $this->nowMs();
+			$this->indexAncestorFolders($uid, $rel, $updatedMs);
+			$this->index->upsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, '', '', '', $updatedMs, '');
+			// Reconcile this note's tag links against its current footer tags.
+			$desired = [];
+			foreach (NoteFormat::tags($meta) as $tagName) {
+				$tagName = trim((string)$tagName);
+				if ($tagName === '') {
+					continue;
+				}
+				$desired[$this->index->getOrCreateTagJid($uid, $tagName, '', $updatedMs)] = true;
+			}
+			$have = [];
+			foreach ($this->index->linksForNote($uid, $jid) as $lnk) {
+				if (isset($desired[$lnk['link_tag']])) {
+					$have[$lnk['link_tag']] = true;
+				} else {
+					$this->index->delete($uid, $lnk['jid']); // tag removed from this note
+				}
+			}
+			foreach (array_keys($desired) as $tagJid) {
+				if (!isset($have[$tagJid])) {
+					$this->index->getOrCreateLinkJid($uid, $jid, $tagJid, $updatedMs);
+				}
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes joplin index (note ' . $rel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	private function indexAncestorFolders(string $uid, string $rel, int $updatedMs): void {
+		$parts = explode('/', $rel);
+		array_pop($parts); // drop the leaf (the note or folder itself)
+		$acc = '';
+		foreach ($parts as $seg) {
+			if ($seg === '') {
+				continue;
+			}
+			$acc = $acc === '' ? $seg : $acc . '/' . $seg;
+			$this->index->getOrCreateFolderJid($uid, $acc, $updatedMs);
+		}
+	}
+
+	private function indexFolderAfterWrite(string $uid, string $rel): void {
+		$rel = trim($rel, '/');
+		if ($rel === '') {
+			return;
+		}
+		try {
+			$this->indexAncestorFolders($uid, $rel, $this->nowMs());
+			$this->index->getOrCreateFolderJid($uid, $rel, $this->nowMs());
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes joplin index (folder ' . $rel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	private function deindexNote(string $uid, string $rel): void {
+		try {
+			$this->index->deleteNoteByRel($uid, trim($rel, '/'));
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes joplin index (del note ' . $rel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	private function deindexTree(string $uid, string $rel): void {
+		try {
+			$this->index->deleteByRelPrefix($uid, trim($rel, '/'));
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes joplin index (del tree ' . $rel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	private function repathIndex(string $uid, string $fromRel, string $toRel): void {
+		try {
+			// Bump updated_ms so the move propagates to Joplin clients.
+			$this->index->repath($uid, trim($fromRel, '/'), trim($toRel, '/'), $this->nowMs());
+			$this->indexAncestorFolders($uid, trim($toRel, '/'), $this->nowMs());
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes joplin index (move ' . $fromRel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	// ── relative image-link rebasing on move ──────────────────────────────────
+	// The single attachments/ folder is reached by a depth-relative `../` prefix,
+	// so a note changing depth must have its image links rewritten. Failures are
+	// logged but never block the move.
+
+	private function rebaseMovedLinks(string $uid, string $oldRel, string $newRel, bool $isFolder): void {
+		try {
+			$folder = $this->notesFolder($uid);
+			if (!$isFolder) {
+				if (substr($newRel, -3) === '.md' && $folder->nodeExists($newRel)) {
+					// A direct note move changes its parent_id: bump updated_time so
+					// Joplin applies the move (it compares the item's content
+					// updated_time, not the WebDAV file timestamp).
+					$this->rebaseNoteFile($folder->get($newRel), $oldRel, $newRel, true);
+				}
+				return;
+			}
+			if ($folder->nodeExists($newRel) && $folder->get($newRel) instanceof Folder) {
+				$this->rebaseFolderTree($folder->get($newRel), $newRel, $oldRel, $newRel);
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes rebase links (move ' . $oldRel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	private function rebaseFolderTree(Folder $dir, string $newBase, string $oldBase, string $curRel): void {
+		foreach ($dir->getDirectoryListing() as $node) {
+			$name = $node->getName();
+			if ($name === '' || $name[0] === '.') {
+				continue;
+			}
+			$childRel = $curRel === '' ? $name : $curRel . '/' . $name;
+			if ($node instanceof Folder) {
+				$this->rebaseFolderTree($node, $newBase, $oldBase, $childRel);
+				continue;
+			}
+			if (substr($name, -3) === '.md') {
+				$oldPath = $oldBase . substr($childRel, strlen($newBase));
+				$this->rebaseNoteFile($node, $oldPath, $childRel);
+			}
+		}
+	}
+
+	private function rebaseNoteFile(Node $file, string $oldRel, string $newRel, bool $bumpTime = false): void {
+		$parsed = NoteFormat::parse($this->readContent($file));
+		$newBody = $this->rebaseRelativeLinks($oldRel, $newRel, $parsed['body']);
+		$meta = $parsed['meta'];
+		$changed = $newBody !== $parsed['body'];
+		if ($bumpTime) {
+			$meta['updated_time'] = $this->now();
+			$changed = true;
+		}
+		if ($changed) {
+			$file->putContent(NoteFormat::serialize($parsed['title'], $newBody, $meta));
+		}
+	}
+
+	/** Re-express each relative markdown link so it still points at the same target after a move. */
+	private function rebaseRelativeLinks(string $oldRel, string $newRel, string $body): string {
+		$oldDir = $this->dirOf($oldRel);
+		$newDir = $this->dirOf($newRel);
+		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function (array $m) use ($oldDir, $newDir): string {
+			$link = $m[2];
+			if ($link === '' || $link[0] === '/' || $link[0] === '#' || str_starts_with($link, ':/')
+				|| preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
+				return $m[0]; // absolute / anchor / joplin id / URL — leave alone
+			}
+			$target = $this->normalizeRel(($oldDir === '' ? '' : $oldDir . '/') . rawurldecode($link));
+			if ($target === null) {
+				return $m[0];
+			}
+			$newLink = implode('/', array_map('rawurlencode', explode('/', $this->makeRelative($newDir, $target))));
+			return $m[1] . $newLink . ($m[3] ?? '') . $m[4];
+		}, $body);
+	}
+
+	private function dirOf(string $rel): string {
+		$rel = trim($rel, '/');
+		$pos = strrpos($rel, '/');
+		return $pos === false ? '' : substr($rel, 0, $pos);
+	}
+
+	private function normalizeRel(string $path): ?string {
+		$out = [];
+		foreach (explode('/', $path) as $seg) {
+			if ($seg === '' || $seg === '.') {
+				continue;
+			}
+			if ($seg === '..') {
+				if (empty($out)) {
+					return null;
+				}
+				array_pop($out);
+				continue;
+			}
+			$out[] = $seg;
+		}
+		return implode('/', $out);
+	}
+
+	private function makeRelative(string $fromDir, string $target): string {
+		$from = $fromDir === '' ? [] : explode('/', $fromDir);
+		$to = $target === '' ? [] : explode('/', $target);
+		$i = 0;
+		while ($i < count($from) && $i < count($to) && $from[$i] === $to[$i]) {
+			$i++;
+		}
+		$rel = str_repeat('../', count($from) - $i) . implode('/', array_slice($to, $i));
+		return $rel === '' ? '.' : $rel;
 	}
 
 	// ── Templates ───────────────────────────────────────────────────────────

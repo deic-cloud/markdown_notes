@@ -6,7 +6,6 @@ namespace OCA\MarkdownNotes\Service;
 
 use OCP\Files\Folder;
 use OCP\Files\Node;
-use OCP\IDBConnection;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -25,11 +24,14 @@ use Psr\Log\LoggerInterface;
  * is listed with its updated_time as getlastmodified.
  */
 class JoplinSyncService {
+	/** Notes-root folder that holds image/file resources (a visible, non-notebook dir). */
+	private const ATTACH_DIR = 'attachments';
+
 	public function __construct(
-		private IDBConnection $db,
 		private NotesService $notesService,
 		private SystemTagSync $systemTagSync,
 		private JoplinStore $store,
+		private JoplinIndex $index,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -54,9 +56,10 @@ class JoplinSyncService {
 				case JoplinItem::TYPE_FOLDER: $this->putFolder($uid, $jid, $f); break;
 				case JoplinItem::TYPE_TAG:    $this->putTag($uid, $jid, $f); break;
 				case JoplinItem::TYPE_NOTE_TAG: $this->putLink($uid, $jid, $f); break;
+				case JoplinItem::TYPE_RESOURCE: $this->materializeResource($uid, $jid, $f, $raw); break;
 				default:
-					// resources (4) and anything else: keep the item verbatim so
-					// the round-trip is lossless; index it for enumeration.
+					// anything else: keep the item verbatim so the round-trip is
+					// lossless; index it for enumeration.
 					$this->indexUpsert($uid, $jid, $type ?: 0, '', '', '', '', $this->mtime($f), $raw);
 			}
 			return true;
@@ -72,6 +75,14 @@ class JoplinSyncService {
 		$parentRel = isset($f['parent_id']) && $f['parent_id'] !== '' ? $this->folderRel($uid, (string)$f['parent_id']) : '';
 		$folder = $this->notesService->getNotesFolder($uid);
 		$dir = $parentRel === '' ? $folder : $this->ensureDir($folder, $parentRel);
+
+		// Joplin `:/<id>` image links → portable relative paths on disk, computed
+		// against the note's NEW location (parent from this item's parent_id) so a
+		// cross-depth move from the Joplin client lands the right `../` prefix.
+		// (Unresolved ids stay `:/id` and still render in our preview, converging
+		// on the next reindex/edit.)
+		$noteRel = ($parentRel === '' ? '' : $parentRel . '/') . $this->safeName($title !== '' ? $title : $jid) . '.md';
+		$body = $this->bodyFromJoplin($uid, $noteRel, $body);
 
 		// Build our footer, preserving Joplin's id/times/todo and any tags the
 		// link items will (re)assert. Unmanaged Joplin keys are dropped here but
@@ -154,9 +165,6 @@ class JoplinSyncService {
 			return null;
 		}
 		$type = (int)$row['type'];
-		if (($row['meta'] ?? '') !== '' && !in_array($type, [JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER, JoplinItem::TYPE_TAG], true)) {
-			return (string)$row['meta']; // verbatim (resources etc.)
-		}
 		if ($type === JoplinItem::TYPE_NOTE) {
 			$folder = $this->notesService->getNotesFolder($uid);
 			if (!$folder->nodeExists($row['rel_path'])) {
@@ -166,7 +174,7 @@ class JoplinSyncService {
 			$parentRel = dirname($row['rel_path']);
 			$fields = [
 				'title' => $parsed['title'],
-				'body' => $parsed['body'],
+				'body' => $this->bodyToJoplin($uid, (string)$row['rel_path'], $parsed['body']),
 				'id' => $jid,
 				'parent_id' => $parentRel === '.' ? '' : $this->folderJid($uid, $parentRel),
 				'created_time' => $parsed['meta']['created_time'] ?? JoplinItem::msToTime((int)$row['updated_ms']),
@@ -205,26 +213,284 @@ class JoplinSyncService {
 				'type_' => JoplinItem::TYPE_NOTE_TAG,
 			]);
 		}
-		return (string)($row['meta'] ?? '');
+		if ($type === JoplinItem::TYPE_RESOURCE) {
+			return $this->resourceItem($uid, $jid, $row);
+		}
+		$meta = (string)($row['meta'] ?? '');
+		return $meta !== '' ? $meta : null;
 	}
 
-	/** The binary bytes of a resource (Joplin .resource/<id> blob), or null. */
+	/**
+	 * Bytes of a resource. Resources are stored as REAL files under attachments/
+	 * (rel_path on the index row); we read them straight off disk. Falls back to
+	 * the .resource/<id> transport buffer for an inbound blob not yet materialised.
+	 */
 	public function resourceBlob(string $uid, string $id): ?string {
 		if (!preg_match('/^[0-9a-f]{32}$/', $id)) {
 			return null;
 		}
+		$rel = $this->resourceFileRel($uid, $id);
+		if ($rel !== null) {
+			try {
+				$folder = $this->notesService->getNotesFolder($uid);
+				if ($folder->nodeExists($rel)) {
+					return $this->notesService->readContent($folder->get($rel));
+				}
+			} catch (\Throwable $e) {
+				// fall through to the transport buffer
+			}
+		}
 		return $this->store->getContent($uid, '.resource/' . $id);
 	}
 
-	/** MIME type of a resource, read from its stored type-4 metadata item. */
+	/** MIME type of a resource — from the on-disk file, else the stored metadata. */
 	public function resourceMime(string $uid, string $id): string {
-		$row = $this->indexRow($uid, $id);
-		if ($row === null || (string)($row['meta'] ?? '') === '') {
-			return 'application/octet-stream';
+		$rel = $this->resourceFileRel($uid, $id);
+		if ($rel !== null) {
+			try {
+				$folder = $this->notesService->getNotesFolder($uid);
+				if ($folder->nodeExists($rel)) {
+					$m = $folder->get($rel)->getMimetype();
+					if ($m !== '') {
+						return $m;
+					}
+				}
+			} catch (\Throwable $e) {
+			}
 		}
-		$f = JoplinItem::parse((string)$row['meta']);
-		$mime = trim((string)($f['mime'] ?? ''));
-		return $mime !== '' ? $mime : 'application/octet-stream';
+		$row = $this->indexRow($uid, $id);
+		if ($row !== null && (string)($row['meta'] ?? '') !== '') {
+			$mime = trim((string)(JoplinItem::parse((string)$row['meta'])['mime'] ?? ''));
+			if ($mime !== '') {
+				return $mime;
+			}
+		}
+		return 'application/octet-stream';
+	}
+
+	/** attachments/ path for a resource id, or null if it isn't a materialised resource. */
+	private function resourceFileRel(string $uid, string $id): ?string {
+		$row = $this->indexRow($uid, $id);
+		if ($row === null || (int)$row['type'] !== JoplinItem::TYPE_RESOURCE || (string)$row['rel_path'] === '') {
+			return null;
+		}
+		return (string)$row['rel_path'];
+	}
+
+	/**
+	 * Register bytes as an image attachment: stores a REAL file under attachments/
+	 * and indexes it as a resource. The web UI then inserts a portable relative
+	 * link (`![alt](attachments/name)`); the Joplin layer maps that to `:/<id>`
+	 * on the fly. Returns the stored filename + suggested alt text.
+	 *
+	 * @return array{name:string, alt:string}
+	 */
+	public function createResource(string $uid, string $bytes, string $filename, string $mime): array {
+		$folder = $this->notesService->getNotesFolder($uid);
+		$att = $this->ensureDir($folder, self::ATTACH_DIR);
+		$filename = $this->safeName(trim($filename) !== '' ? $filename : 'image');
+		if (strpos($filename, '.') === false) {
+			$ext = $this->extForMime($mime);
+			if ($ext !== '') {
+				$filename .= '.' . $ext;
+			}
+		}
+		$name = $this->uniqueChild($att, $filename);
+		$att->newFile($name, $bytes);
+		$rel = self::ATTACH_DIR . '/' . $name;
+		$this->index->getOrCreateResourceJid($uid, $rel, (int)round(microtime(true) * 1000));
+		$alt = (string)preg_replace('/\.[^.]+$/', '', $name);
+		return ['name' => $name, 'alt' => $alt !== '' ? $alt : $name];
+	}
+
+	/** Materialise an incoming Joplin resource (type-4) as a real attachments/ file. */
+	private function materializeResource(string $uid, string $jid, array $f, string $raw): void {
+		$folder = $this->notesService->getNotesFolder($uid);
+		$att = $this->ensureDir($folder, self::ATTACH_DIR);
+		$updatedMs = $this->mtime($f);
+		$existingRel = $this->indexRelPath($uid, $jid);
+		if ($existingRel !== null && $existingRel !== '' && $folder->nodeExists($existingRel)) {
+			// already materialised — just refresh the metadata snapshot
+			$this->index->upsert($uid, $jid, JoplinItem::TYPE_RESOURCE, $existingRel, '', '', '', $updatedMs, $raw);
+			return;
+		}
+		// choose a target filename from the Joplin metadata
+		$name = trim((string)($f['filename'] ?? ''));
+		if ($name === '') {
+			$name = trim((string)($f['title'] ?? ''));
+		}
+		if ($name === '') {
+			$name = $jid;
+		}
+		$name = $this->safeName($name);
+		$ext = strtolower(trim((string)($f['file_extension'] ?? '')));
+		if ($ext !== '' && !preg_match('/\.' . preg_quote($ext, '/') . '$/i', $name)) {
+			$name .= '.' . $ext;
+		}
+		$rel = ($existingRel !== null && $existingRel !== '') ? $existingRel : self::ATTACH_DIR . '/' . $this->uniqueChild($att, $name);
+		// If the blob already arrived (buffered), write the real file now.
+		$buffer = $this->store->getContent($uid, '.resource/' . $jid);
+		if ($buffer !== null) {
+			$this->writeAttachment($uid, $rel, $buffer);
+			$this->store->delete($uid, '.resource/' . $jid);
+		}
+		$this->index->upsert($uid, $jid, JoplinItem::TYPE_RESOURCE, $rel, '', '', '', $updatedMs, $raw);
+	}
+
+	/** Joplin PUT of the .resource/<id> binary: materialise into the real file, or buffer. */
+	public function putResourceBlob(string $uid, string $id, string $bytes): void {
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) {
+			return;
+		}
+		$nowMs = (int)round(microtime(true) * 1000);
+		$rel = $this->resourceFileRel($uid, $id);
+		if ($rel !== null) {
+			$this->writeAttachment($uid, $rel, $bytes);
+			return;
+		}
+		// type-4 metadata not seen yet — buffer until materializeResource runs
+		$this->store->put($uid, '.resource/' . $id, $bytes, $nowMs);
+	}
+
+	private function writeAttachment(string $uid, string $rel, string $bytes): void {
+		$folder = $this->notesService->getNotesFolder($uid);
+		if ($folder->nodeExists($rel)) {
+			$folder->get($rel)->putContent($bytes);
+			return;
+		}
+		$dir = dirname($rel);
+		$parent = ($dir === '.' || $dir === '') ? $folder : $this->ensureDir($folder, $dir);
+		$parent->newFile(basename($rel), $bytes);
+	}
+
+	/** Serialise a materialised resource (type-4) from its on-disk file, or null. */
+	private function resourceItem(string $uid, string $jid, array $row): ?string {
+		$rel = (string)$row['rel_path'];
+		if ($rel !== '') {
+			try {
+				$folder = $this->notesService->getNotesFolder($uid);
+				if ($folder->nodeExists($rel)) {
+					$file = $folder->get($rel);
+					$name = basename($rel);
+					$t = JoplinItem::msToTime((int)$row['updated_ms']);
+					return JoplinItem::serialize([
+						'title' => $name,
+						'id' => $jid,
+						'mime' => $file->getMimetype() ?: 'application/octet-stream',
+						'filename' => '',
+						'created_time' => $t,
+						'updated_time' => $t,
+						'user_created_time' => $t,
+						'user_updated_time' => $t,
+						'file_extension' => strtolower((string)pathinfo($name, PATHINFO_EXTENSION)),
+						'encryption_cipher_text' => '',
+						'encryption_applied' => '0',
+						'encryption_blob_encrypted' => '0',
+						'size' => (string)$file->getSize(),
+						'blob_updated_time' => $t,
+						'is_shared' => '0',
+						'type_' => JoplinItem::TYPE_RESOURCE,
+					]);
+				}
+			} catch (\Throwable $e) {
+			}
+		}
+		$meta = (string)($row['meta'] ?? '');
+		return $meta !== '' ? $meta : null;
+	}
+
+	/** @return array<int, array{id:string, updated_ms:int, size:int}> materialised resource blobs, for PROPFIND of .resource/. */
+	public function resourceBlobs(string $uid): array {
+		$out = [];
+		$folder = $this->notesService->getNotesFolder($uid);
+		foreach ($this->index->listResources($uid) as $r) {
+			if ($r['rel_path'] === '') {
+				continue;
+			}
+			try {
+				if ($folder->nodeExists($r['rel_path'])) {
+					$out[] = ['id' => $r['jid'], 'updated_ms' => $r['updated_ms'], 'size' => $folder->get($r['rel_path'])->getSize()];
+				}
+			} catch (\Throwable $e) {
+			}
+		}
+		return $out;
+	}
+
+	private function extForMime(string $mime): string {
+		$map = [
+			'image/png' => 'png', 'image/jpeg' => 'jpg', 'image/gif' => 'gif',
+			'image/svg+xml' => 'svg', 'image/webp' => 'webp', 'image/bmp' => 'bmp',
+		];
+		return $map[strtolower(trim($mime))] ?? '';
+	}
+
+	// ── image-link mapping (relative file path <-> Joplin :/id) ───────────────
+
+	/** '../' repeated for the note's folder depth, to reach the notes root. */
+	private function relPrefixForNote(string $noteRel): string {
+		return str_repeat('../', substr_count(trim($noteRel, '/'), '/'));
+	}
+
+	/** Collapse a path (resolving '.'/'..'); null if it escapes the root. */
+	private function normalizePath(string $path): ?string {
+		$out = [];
+		foreach (explode('/', $path) as $seg) {
+			if ($seg === '' || $seg === '.') {
+				continue;
+			}
+			if ($seg === '..') {
+				if (empty($out)) {
+					return null;
+				}
+				array_pop($out);
+				continue;
+			}
+			$out[] = $seg;
+		}
+		return implode('/', $out);
+	}
+
+	/** Resolve a note-relative link to a notes-root attachments path, or null. */
+	private function resolveAttachment(string $noteRel, string $link): ?string {
+		if ($link === '' || str_starts_with($link, ':/') || str_starts_with($link, '/') || str_starts_with($link, '#')
+			|| preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
+			return null;
+		}
+		$dir = trim((string)dirname($noteRel), '/');
+		$combined = ($dir === '' || $dir === '.') ? $link : $dir . '/' . $link;
+		$norm = $this->normalizePath($combined);
+		return ($norm !== null && str_starts_with($norm, self::ATTACH_DIR . '/')) ? $norm : null;
+	}
+
+	/**
+	 * Rewrite portable resource links (relative attachments paths) to Joplin
+	 * `:/<id>`. Matches both `![img](…)` and `[file](…)` (Joplin uses the latter
+	 * for video/audio/other); resolveAttachment() gates it so note-to-note links
+	 * are left untouched.
+	 */
+	private function bodyToJoplin(string $uid, string $noteRel, string $body): string {
+		$folder = $this->notesService->getNotesFolder($uid);
+		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel, $folder) {
+			$att = $this->resolveAttachment($noteRel, rawurldecode($m[2]));
+			if ($att === null || !$folder->nodeExists($att)) {
+				return $m[0];
+			}
+			$id = $this->index->getOrCreateResourceJid($uid, $att, $folder->get($att)->getMTime() * 1000);
+			return $m[1] . ':/' . $id . ($m[3] ?? '') . $m[4];
+		}, $body);
+	}
+
+	/** Rewrite Joplin `:/<id>` resource links (image `![]` or file `[]`) to portable relative paths. */
+	private function bodyFromJoplin(string $uid, string $noteRel, string $body): string {
+		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()(:\/[0-9a-f]{32})(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel) {
+			$rel = $this->resourceFileRel($uid, substr($m[2], 2));
+			if ($rel === null) {
+				return $m[0]; // resource not materialised yet — leave :/id (preview still resolves it)
+			}
+			$link = $this->relPrefixForNote($noteRel) . implode('/', array_map('rawurlencode', explode('/', $rel)));
+			return $m[1] . $link . ($m[3] ?? '') . $m[4];
+		}, $body);
 	}
 
 	public function deleteItem(string $uid, string $jid): void {
@@ -246,20 +512,124 @@ class JoplinSyncService {
 
 	/** @return array<int, array{path:string,updated_ms:int,size:int}> item files for PROPFIND. */
 	public function enumerate(string $uid): array {
-		$q = $this->db->getQueryBuilder();
-		$q->select('jid', 'updated_ms')->from('markdown_notes_joplin')
-			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)));
-		$r = $q->executeQuery();
 		$out = [];
-		while ($row = $r->fetch()) {
-			$item = $this->getItem($uid, (string)$row['jid']);
+		foreach ($this->index->allJids($uid) as $row) {
+			$item = $this->getItem($uid, $row['jid']);
 			if ($item === null) {
 				continue;
 			}
-			$out[] = ['path' => $row['jid'] . '.md', 'updated_ms' => (int)$row['updated_ms'], 'size' => strlen($item)];
+			$out[] = ['path' => $row['jid'] . '.md', 'updated_ms' => $row['updated_ms'], 'size' => strlen($item)];
 		}
-		$r->closeCursor();
 		return $out;
+	}
+
+	// ── rebuild ──────────────────────────────────────────────────────────────
+
+	/**
+	 * Rebuild the index from the on-disk notes tree: folders, notes (by footer
+	 * id), tags (from footers) and note<->tag links. Resources are preserved.
+	 * This is what makes notes/tags created in the web UI visible to a Joplin
+	 * download; the web-UI write paths keep the index live afterwards.
+	 *
+	 * @return array{folders:int,notes:int,tags:int,links:int,resources:int}
+	 */
+	public function rebuildIndex(string $uid): array {
+		$this->index->clearForRebuild($uid);
+		$counts = ['folders' => 0, 'notes' => 0, 'tags' => 0, 'links' => 0, 'resources' => 0];
+		$root = $this->notesService->getNotesFolder($uid);
+		// Resources first, so note-body normalisation below can resolve :/id links.
+		$this->reindexResources($uid, $root);
+		$this->reindexWalk($uid, $root, '', $counts, true);
+		$counts['tags'] = $this->index->countByType($uid, JoplinItem::TYPE_TAG);
+		$counts['resources'] = $this->index->countByType($uid, JoplinItem::TYPE_RESOURCE);
+		return $counts;
+	}
+
+	/** Index every file under attachments/ as a resource (stable jids); prune rows whose file is gone. */
+	private function reindexResources(string $uid, Folder $root): void {
+		if ($root->nodeExists(self::ATTACH_DIR) && $root->get(self::ATTACH_DIR) instanceof Folder) {
+			$att = $root->get(self::ATTACH_DIR);
+			foreach ($att->getDirectoryListing() as $node) {
+				$name = $node->getName();
+				if ($node instanceof Folder || $name === '' || $name[0] === '.') {
+					continue;
+				}
+				$this->index->getOrCreateResourceJid($uid, self::ATTACH_DIR . '/' . $name, $node->getMTime() * 1000);
+			}
+		}
+		foreach ($this->index->listResources($uid) as $r) {
+			if ($r['rel_path'] === '' || !$root->nodeExists($r['rel_path'])) {
+				$this->index->delete($uid, $r['jid']); // stale: file removed
+			}
+		}
+	}
+
+	private function reindexWalk(string $uid, Folder $dir, string $base, array &$counts, bool $top): void {
+		foreach ($dir->getDirectoryListing() as $node) {
+			$name = $node->getName();
+			if ($name === '' || $name[0] === '.') {
+				continue;
+			}
+			$rel = $base === '' ? $name : $base . '/' . $name;
+			if ($node instanceof Folder) {
+				// Templates/ and attachments/ are not notebooks — skip them.
+				if ($top && in_array($name, NotesService::SPECIAL, true)) {
+					continue;
+				}
+				$this->index->getOrCreateFolderJid($uid, $rel, $node->getMTime() * 1000);
+				$counts['folders']++;
+				$this->reindexWalk($uid, $node, $rel, $counts, false);
+				continue;
+			}
+			if (substr($name, -3) !== '.md') {
+				continue;
+			}
+			$this->reindexNote($uid, $node, $rel, $counts);
+		}
+	}
+
+	private function reindexNote(string $uid, Node $file, string $rel, array &$counts): void {
+		$parsed = NoteFormat::parse($this->notesService->readContent($file));
+		$meta = $parsed['meta'];
+		$body = $parsed['body'];
+		$jid = (string)($meta['id'] ?? '');
+		$dirty = false;
+		if (!preg_match('/^[0-9a-f]{32}$/', $jid)) {
+			// No (or malformed) footer id: assign a stable one and persist it so
+			// the jid survives future rebuilds and Joplin sees one identity.
+			$jid = JoplinItem::newId();
+			$meta = ['id' => $jid] + $meta;
+			$dirty = true;
+		}
+		// Converge any Joplin :/id image links to portable relative paths on disk.
+		$norm = $this->bodyFromJoplin($uid, $rel, $body);
+		if ($norm !== $body) {
+			$body = $norm;
+			$dirty = true;
+		}
+		if ($dirty) {
+			$file->putContent(NoteFormat::serialize($parsed['title'], $body, $meta));
+		}
+		$updatedMs = isset($meta['updated_time']) && $meta['updated_time'] !== ''
+			? JoplinItem::timeToMs((string)$meta['updated_time'])
+			: $file->getMTime() * 1000;
+		$this->index->upsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, '', '', '', $updatedMs, '');
+		$counts['notes']++;
+		foreach ($parsed['tags'] as $tagName) {
+			$tagName = trim((string)$tagName);
+			if ($tagName === '') {
+				continue;
+			}
+			$refId = '';
+			try {
+				$refId = (string)$this->systemTagSync->ensureTagPublic($tagName);
+			} catch (\Throwable $e) {
+				// best effort; the Joplin tag item only needs the name
+			}
+			$tagJid = $this->index->getOrCreateTagJid($uid, $tagName, $refId, $updatedMs);
+			$this->index->getOrCreateLinkJid($uid, $jid, $tagJid, $updatedMs);
+			$counts['links']++;
+		}
 	}
 
 	// ── tree helpers ─────────────────────────────────────────────────────────
@@ -320,80 +690,31 @@ class JoplinSyncService {
 	// ── index ─────────────────────────────────────────────────────────────
 
 	private function folderRel(string $uid, string $folderJid): string {
-		$rel = $this->indexRelPath($uid, $folderJid);
-		return $rel ?? '';
+		return $this->index->relPath($uid, $folderJid) ?? '';
 	}
 
 	private function folderJid(string $uid, string $rel): string {
-		$q = $this->db->getQueryBuilder();
-		$q->select('jid')->from('markdown_notes_joplin')
-			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
-			->andWhere($q->expr()->eq('type', $q->createNamedParameter(JoplinItem::TYPE_FOLDER)))
-			->andWhere($q->expr()->eq('rel_path', $q->createNamedParameter($rel)));
-		$r = $q->executeQuery();
-		$row = $r->fetch();
-		$r->closeCursor();
-		return $row ? (string)$row['jid'] : '';
+		return $this->index->folderJidByRel($uid, $rel);
 	}
 
 	private function tagName(string $uid, string $tagJid): ?string {
-		$row = $this->indexRow($uid, $tagJid);
-		return ($row !== null && (int)$row['type'] === JoplinItem::TYPE_TAG) ? (string)$row['meta'] : null;
+		return $this->index->tagName($uid, $tagJid);
 	}
 
 	private function indexRelPath(string $uid, string $jid): ?string {
-		$row = $this->indexRow($uid, $jid);
-		return $row !== null ? (string)$row['rel_path'] : null;
+		return $this->index->relPath($uid, $jid);
 	}
 
 	/** @return array<string,mixed>|null */
 	private function indexRow(string $uid, string $jid): ?array {
-		$q = $this->db->getQueryBuilder();
-		$q->select('*')->from('markdown_notes_joplin')
-			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
-			->andWhere($q->expr()->eq('jid', $q->createNamedParameter($jid)));
-		$r = $q->executeQuery();
-		$row = $r->fetch();
-		$r->closeCursor();
-		return $row ?: null;
+		return $this->index->row($uid, $jid);
 	}
 
 	private function indexUpsert(string $uid, string $jid, int $type, string $relPath, string $refId, string $linkNote, string $linkTag, int $updatedMs, string $meta): void {
-		$exists = $this->indexRow($uid, $jid) !== null;
-		$q = $this->db->getQueryBuilder();
-		if ($exists) {
-			$q->update('markdown_notes_joplin')
-				->set('type', $q->createNamedParameter($type))
-				->set('rel_path', $q->createNamedParameter($relPath))
-				->set('ref_id', $q->createNamedParameter($refId))
-				->set('link_note', $q->createNamedParameter($linkNote))
-				->set('link_tag', $q->createNamedParameter($linkTag))
-				->set('updated_ms', $q->createNamedParameter($updatedMs))
-				->set('meta', $q->createNamedParameter($meta))
-				->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
-				->andWhere($q->expr()->eq('jid', $q->createNamedParameter($jid)));
-			$q->executeStatement();
-			return;
-		}
-		$q->insert('markdown_notes_joplin')->values([
-			'uid' => $q->createNamedParameter($uid),
-			'jid' => $q->createNamedParameter($jid),
-			'type' => $q->createNamedParameter($type),
-			'rel_path' => $q->createNamedParameter($relPath),
-			'ref_id' => $q->createNamedParameter($refId),
-			'link_note' => $q->createNamedParameter($linkNote),
-			'link_tag' => $q->createNamedParameter($linkTag),
-			'updated_ms' => $q->createNamedParameter($updatedMs),
-			'meta' => $q->createNamedParameter($meta),
-		]);
-		$q->executeStatement();
+		$this->index->upsert($uid, $jid, $type, $relPath, $refId, $linkNote, $linkTag, $updatedMs, $meta);
 	}
 
 	private function indexDelete(string $uid, string $jid): void {
-		$q = $this->db->getQueryBuilder();
-		$q->delete('markdown_notes_joplin')
-			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
-			->andWhere($q->expr()->eq('jid', $q->createNamedParameter($jid)));
-		$q->executeStatement();
+		$this->index->delete($uid, $jid);
 	}
 }

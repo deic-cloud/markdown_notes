@@ -50,7 +50,51 @@
 			return '](' + base + id + title + ')';
 		});
 	}
+	// Collapse '.'/'..' in a path; null if it escapes the root.
+	function normalizeRel(path) {
+		var segs = path.split('/'), out = [];
+		for (var i = 0; i < segs.length; i++) {
+			var s = segs[i];
+			if (s === '' || s === '.') { continue; }
+			if (s === '..') { if (!out.length) { return null; } out.pop(); continue; }
+			out.push(s);
+		}
+		return out.join('/');
+	}
+	var VIDEO_EXT = /\.(mp4|webm|ogv|ogm|mov|m4v)$/i;
+	var AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|flac|aac)$/i;
+	// Portable relative resource links resolved against the open note's folder.
+	// Images (`![](attachments/x.png)`) → a DAV URL `<img>` can load; video/audio
+	// (`[clip](../attachments/x.mp4)`, the form Joplin uses) → an inline player.
+	// On-disk markdown keeps the portable relative form; this is display-time only.
+	function resolveLocalImages(text) {
+		var notePath = state.notePath || '';
+		var noteDir = notePath.indexOf('/') >= 0 ? notePath.replace(/\/[^/]*$/, '') : '';
+		var uid = (window.OC && OC.getCurrentUser) ? OC.getCurrentUser().uid : OC.currentUser;
+		var davRoot = (OC.webroot || '') + '/remote.php/dav/files/' + encodeURIComponent(uid) + '/'
+			+ (state.notesFolder || 'Notes').split('/').filter(Boolean).map(encodeURIComponent).join('/') + '/';
+		return text.replace(/(!?)\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g, function (m, bang, label, link, title) {
+			if (/^[a-z][a-z0-9+.-]*:/i.test(link) || link.charAt(0) === '/' || link.charAt(0) === '#' || link.slice(0, 2) === ':/') {
+				return m;
+			}
+			var decoded = decodeURIComponent(link);
+			var norm = normalizeRel((noteDir ? noteDir + '/' : '') + decoded);
+			if (norm === null) { return m; }
+			var url = davRoot + norm.split('/').map(encodeURIComponent).join('/');
+			if (VIDEO_EXT.test(decoded)) {
+				return '<video controls preload="metadata" src="' + url + '" style="max-width:100%"></video>';
+			}
+			if (AUDIO_EXT.test(decoded)) {
+				return '<audio controls preload="metadata" src="' + url + '"></audio>';
+			}
+			if (bang) {
+				return '![' + label + '](' + url + (title || '') + ')';
+			}
+			return m; // plain link to a non-media file / another note — leave as-is
+		});
+	}
 	function renderMarkdownWithMath(text) {
+		text = resolveLocalImages(text);
 		text = resolveJoplinResources(text);
 		var store = [];
 		function stash(m) { store.push(m); return '@@MJX' + (store.length - 1) + '@@'; }
@@ -639,6 +683,7 @@
 			el('notes-editor-wrap').style.display = 'flex';
 			ensureEditor();
 			el('notes-title').value = note.title;
+			setLocation(note.path);
 			mde.value(note.body);
 			applyViewMode();
 			state.editorTags = (note.tags || []).slice();
@@ -654,6 +699,13 @@
 		}).catch(showError);
 	}
 	function backToList() { state.metaView = 'list'; applyLayout(); }
+	// Show the open note's notebook/location in the editor header.
+	function setLocation(path) {
+		var loc = el('notes-location');
+		if (!loc) { return; }
+		var dir = (path && path.indexOf('/') >= 0) ? path.replace(/\/[^/]*$/, '') : '';
+		loc.textContent = dir || t('markdown_notes', 'Notes (top level)');
+	}
 	// Reflect the note's to-do state into the editor controls.
 	// The Due row shows only when the note is already a to-do; conversion to/from
 	// a to-do is done from the notes-list Actions menu, not here.
@@ -805,14 +857,14 @@
 		});
 	}
 
-	// ── Image insert (upload into the visible attachments/ folder) ───────────
-	function davBase() {
-		var uid = (window.OC && OC.getCurrentUser) ? OC.getCurrentUser().uid : OC.currentUser;
-		var seg = (state.notesFolder || 'Notes').split('/').filter(Boolean).map(encodeURIComponent).join('/');
-		return (OC.webroot || '') + '/remote.php/dav/files/' + encodeURIComponent(uid) + '/' + seg;
-	}
+	// ── Image insert (registered as a Joplin resource) ───────────────────────
+	// Images are stored as real Joplin resources (`![alt](:/<id>)`) rather than
+	// WebDAV URLs, so they render in our preview AND sync to Joplin clients as
+	// proper, offline-capable resources.
+	var RES_URL = (OC.webroot || '') + '/index.php/apps/markdown_notes/resource';
+
 	// Pick an existing image from the user's NC files (native file picker) and
-	// insert a markdown reference. Falls back to a local upload if the legacy
+	// register it as a resource. Falls back to a local upload if the legacy
 	// picker isn't available.
 	function pickImage() {
 		if (window.OC && OC.dialogs && OC.dialogs.filepicker) {
@@ -823,14 +875,6 @@
 			pickAndUpload();
 		}
 	}
-	function insertImageFromPath(path) {
-		if (!path) { return; }
-		var uid = (window.OC && OC.getCurrentUser) ? OC.getCurrentUser().uid : OC.currentUser;
-		var davUrl = (OC.webroot || '') + '/remote.php/dav/files/' + encodeURIComponent(uid)
-			+ path.split('/').map(encodeURIComponent).join('/');
-		var alt = path.split('/').pop().replace(/\.[^.]+$/, '');
-		if (mde) { mde.codemirror.replaceSelection('![' + alt + '](' + davUrl + ')'); mde.codemirror.focus(); }
-	}
 	function pickAndUpload() {
 		var input = document.createElement('input');
 		input.type = 'file';
@@ -838,20 +882,40 @@
 		input.addEventListener('change', function () { if (input.files && input.files[0]) { uploadImage(input.files[0]); } });
 		input.click();
 	}
+	function insertImageFromPath(path) {
+		if (!path) { return; }
+		var fd = new FormData();
+		fd.append('path', path);
+		registerResource(fd);
+	}
 	function uploadImage(file) {
-		var attDir = davBase() + '/attachments';
-		var name = (file.name || 'image').replace(/[\\/]/g, '_');
-		var url = attDir + '/' + encodeURIComponent(name);
-		var hdr = { requesttoken: OC.requestToken };
+		var fd = new FormData();
+		fd.append('file', file, (file.name || 'image').replace(/[\\/]/g, '_'));
+		registerResource(fd);
+	}
+	// '../' for each folder the open note is deep, to reach the notes root.
+	function notePrefix() {
+		var depth = (state.notePath || '').split('/').length - 1;
+		return depth > 0 ? new Array(depth + 1).join('../') : '';
+	}
+	// POST the image; the backend stores it under attachments/ and returns its
+	// filename. Insert a PORTABLE relative link (`![alt](../attachments/name)`).
+	function registerResource(formData) {
 		el('notes-status').textContent = t('markdown_notes', 'Uploading…');
-		fetch(attDir, { method: 'MKCOL', headers: hdr })
-			.catch(function () {})
-			.then(function () { return fetch(url, { method: 'PUT', headers: hdr, body: file }); })
+		fetch(RES_URL, { method: 'POST', headers: { requesttoken: OC.requestToken }, body: formData })
 			.then(function (r) {
-				if (!r.ok && r.status !== 201 && r.status !== 204) { throw new Error('Upload failed (' + r.status + ')'); }
-				if (mde) { mde.codemirror.replaceSelection('![' + name + '](' + url + ')'); }
+				if (!r.ok) { throw new Error('Upload failed (' + r.status + ')'); }
+				return r.json();
+			})
+			.then(function (j) {
 				el('notes-status').textContent = '';
-			}).catch(showError);
+				if (mde && j && j.name) {
+					var link = notePrefix() + 'attachments/' + encodeURIComponent(j.name);
+					mde.codemirror.replaceSelection('![' + (j.alt || 'image') + '](' + link + ')');
+					mde.codemirror.focus();
+				}
+			})
+			.catch(showError);
 	}
 
 	// ── Dialogs (NC-styled, not browser prompt/confirm) ──────────────────────

@@ -52,6 +52,7 @@
 				<button id="notes-delete" type="button" title="<?php p($l->t('Delete note')); ?>"><span class="icon-delete"></span></button>
 				<span id="notes-status"></span>
 			</div>
+			<div id="notes-location" class="notes-location"></div>
 			<div id="notes-tags-edit">
 				<span class="notes-tags-label"><?php p($l->t('Tags:')); ?></span>
 				<span id="notes-tag-chips"></span>

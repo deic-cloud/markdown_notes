@@ -29,6 +29,8 @@ use OCP\IUserSession;
  * note-tree translation layer is layered on top next.
  */
 class WebDavController extends Controller {
+	private const RES_DIR = '.resource';
+
 	public function __construct(
 		string $appName,
 		IRequest $request,
@@ -51,6 +53,7 @@ class WebDavController extends Controller {
 		$now = $this->nowMs();
 
 		$isItem = $this->sync->isItemPath($path);
+		$resourceId = $this->resourceBlobId($path);
 
 		switch ($method) {
 			case 'PROPFIND':
@@ -66,10 +69,23 @@ class WebDavController extends Controller {
 					$resp->addHeader('Content-Type', 'text/plain; charset=utf-8');
 					return $resp;
 				}
+				if ($resourceId !== null) {
+					$blob = $this->sync->resourceBlob($uid, $resourceId);
+					if ($blob === null) {
+						return $this->raw('', Http::STATUS_NOT_FOUND);
+					}
+					$resp = $this->raw($method === 'HEAD' ? '' : $blob, Http::STATUS_OK);
+					$resp->addHeader('Content-Type', $this->sync->resourceMime($uid, $resourceId));
+					return $resp;
+				}
 				return $this->get($uid, $path, $method === 'HEAD');
 			case 'PUT':
 				if ($isItem) {
 					$this->sync->putItem($uid, $this->sync->jidFromPath($path), $this->body());
+					return $this->raw('', Http::STATUS_CREATED);
+				}
+				if ($resourceId !== null) {
+					$this->sync->putResourceBlob($uid, $resourceId, $this->body());
 					return $this->raw('', Http::STATUS_CREATED);
 				}
 				$this->store->put($uid, $path, $this->body(), $now);
@@ -120,6 +136,36 @@ class WebDavController extends Controller {
 			}
 			return $this->multiStatusResponse($this->responseXml(
 				['path' => $path, 'is_dir' => false, 'size' => strlen($item), 'updated_ms' => 0]));
+		}
+
+		// A single resource blob (.resource/<id>) — synthesise its stat.
+		$rid = $this->resourceBlobId($path);
+		if ($rid !== null) {
+			$blob = $this->sync->resourceBlob($uid, $rid);
+			if ($blob === null) {
+				return $this->multiStatusResponse('');
+			}
+			return $this->multiStatusResponse($this->responseXml(
+				['path' => $path, 'is_dir' => false, 'size' => strlen($blob), 'updated_ms' => 0]));
+		}
+
+		// The .resource/ collection is virtual — backed by attachments/ files
+		// (plus any inbound blobs still buffered in the store).
+		if ($path === self::RES_DIR) {
+			$entries = [['path' => self::RES_DIR, 'is_dir' => true, 'size' => 0, 'updated_ms' => 0]];
+			if ($depth !== '0') {
+				foreach ($this->store->children($uid, self::RES_DIR) as $c) {
+					$entries[] = $c;
+				}
+				foreach ($this->sync->resourceBlobs($uid) as $b) {
+					$entries[] = ['path' => self::RES_DIR . '/' . $b['id'], 'is_dir' => false, 'size' => $b['size'], 'updated_ms' => $b['updated_ms']];
+				}
+			}
+			$responses = '';
+			foreach ($entries as $e) {
+				$responses .= $this->responseXml($e);
+			}
+			return $this->multiStatusResponse($responses);
 		}
 
 		$self = $this->store->stat($uid, $path);
@@ -221,5 +267,10 @@ class WebDavController extends Controller {
 
 	private function nowMs(): int {
 		return (int)round(microtime(true) * 1000);
+	}
+
+	/** The resource id if $path is a `.resource/<32hex>` blob path, else null. */
+	private function resourceBlobId(string $path): ?string {
+		return preg_match('#^\.resource/([0-9a-f]{32})$#', $path, $m) ? $m[1] : null;
 	}
 }
