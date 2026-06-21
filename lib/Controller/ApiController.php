@@ -67,6 +67,18 @@ class ApiController extends OCSController {
 				$cols = $this->metaBridge->columnsFor($tag);
 				if ($cols !== null && !empty($cols['keys'])) {
 					$columns = $cols['keys'];
+					// meta_data datetime fields show date-only or date+time in the
+					// list per the template's declared type (date vs datetime).
+					$tmap = [];
+					foreach ($this->notesService->templateVariablesForTag($this->uid(), $tag) as $v) {
+						$tmap[$v['name']] = $v['type'];
+					}
+					foreach ($columns as &$c) {
+						if (($c['type'] ?? '') === 'datetime') {
+							$c['display'] = (($tmap[$c['name']] ?? '') === 'date') ? 'date' : 'datetime';
+						}
+					}
+					unset($c);
 					foreach ($notes as &$n) {
 						$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId']);
 					}

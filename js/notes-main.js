@@ -339,12 +339,6 @@
 		});
 	}
 	// Editable metadata table (meta_data columns) — full-width over the editor.
-	// A 'date' meta_data field is a datetime-local: a calendar plus a time you can
-	// set by hand. Date-only stored values render at 00:00 (time left to add).
-	function toDateTimeLocal(v) {
-		if (!v) { return ''; }
-		return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v + 'T00:00' : v;
-	}
 	function metaCellHtml(col, val) {
 		if (col.type === 'controlled') {
 			var opts = '<option value=""></option>' + (col.options || []).map(function (o) {
@@ -352,15 +346,18 @@
 			}).join('');
 			return '<select data-keyid="' + col.id + '">' + opts + '</select>';
 		}
-		if (col.type === 'date') {
+		if (col.type === 'datetime') {
 			// A native datetime-local only yields a value when BOTH date and time
 			// are filled — picking just the date saved nothing. Use a date picker
-			// (always valid on pick) plus an optional time (defaults to 00:00).
+			// (always valid on pick); for `datetime` columns also an optional time
+			// (defaults 00:00). `date` columns are date-only (time hardcoded 00:00).
 			var dv = '', tv = '';
 			if (/^\d{4}-\d{2}-\d{2}/.test(val)) { dv = val.slice(0, 10); tv = (val.slice(11, 16) || ''); }
+			var timeInput = (col.display === 'date') ? ''
+				: '<input type="time" class="mn-time" value="' + esc(tv) + '" title="' + esc(t('markdown_notes', 'Time (optional)')) + '" />';
 			return '<span class="mn-datecell" data-keyid="' + col.id + '">'
 				+ '<input type="date" class="mn-date" value="' + esc(dv) + '" />'
-				+ '<input type="time" class="mn-time" value="' + esc(tv) + '" title="' + esc(t('markdown_notes', 'Time (optional)')) + '" />'
+				+ timeInput
 				+ '</span>';
 		}
 		return '<input type="text" data-keyid="' + col.id + '" value="' + esc(val) + '" />';
@@ -490,11 +487,12 @@
 				var keyid = Number(cell.dataset.keyid);
 				var dEl = cell.querySelector('.mn-date'), tEl = cell.querySelector('.mn-time');
 				var save = function () {
-					var v = dEl.value ? (dEl.value + 'T' + (tEl.value || '00:00')) : '';
+					var tm = tEl ? (tEl.value || '00:00') : '00:00';
+					var v = dEl.value ? (dEl.value + 'T' + tm) : '';
 					saveMeta(n, keyid, v, cell);
 				};
 				dEl.addEventListener('change', save);
-				tEl.addEventListener('change', save);
+				if (tEl) { tEl.addEventListener('change', save); }
 			});
 			// A draggable <tr> otherwise hijacks mouse-down on its inputs (can't
 			// place the caret / use the date picker). Suspend row-drag while a

@@ -109,7 +109,7 @@ class TemplateFormat {
 			$var['type'] = 'dropdown';
 			$var['options'] = array_values(array_filter(array_map('trim', explode(',', $dm[1]))));
 		} else {
-			$var['type'] = in_array($type, ['text', 'number', 'boolean', 'date', 'time'], true) ? $type : 'text';
+			$var['type'] = in_array($type, ['text', 'number', 'boolean', 'date', 'datetime', 'time'], true) ? $type : 'text';
 		}
 	}
 

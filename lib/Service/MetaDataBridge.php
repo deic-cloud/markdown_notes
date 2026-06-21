@@ -100,10 +100,11 @@ class MetaDataBridge {
 			if (!$tagId) {
 				return null;
 			}
-			// Map a template variable type to a meta_data field type:
-			// dropdown -> controlled (allowed values), date -> date (datetime
-			// picker), everything else -> plain text.
-			$mdType = $type === 'dropdown' ? 'controlled' : ($type === 'date' ? 'date' : '');
+			// Map a template variable type to a meta_data field type. meta_data has
+			// a single temporal type, 'datetime'; both template `date` and
+			// `datetime` use it (the date-only vs date+time display is decided in
+			// the notes list from the template). dropdown -> controlled; else plain.
+			$mdType = $type === 'dropdown' ? 'controlled' : (($type === 'date' || $type === 'datetime') ? 'datetime' : '');
 			$allowed = ($type === 'dropdown' && !empty($options)) ? (string)json_encode(array_values($options)) : '';
 			foreach ($ts->getKeys((int)$tagId) as $k) {
 				if ($k['name'] === $name) {
