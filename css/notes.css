@@ -214,3 +214,49 @@
 .EasyMDEContainer .editor-preview-side li { display: list-item; margin: .15em 0; }
 .EasyMDEContainer .editor-preview ul ul,
 .EasyMDEContainer .editor-preview-side ul ul { list-style: circle outside; }
+
+/* ── Mobile / narrow screens ─────────────────────────────────────────────────
+   The desktop layout is a fixed 340px list pane beside a flexed editor, which on
+   a phone leaves the editor a useless sliver. Below the breakpoint we stack them
+   and use :has() to act as a CSS-only master/detail: before a note is opened the
+   list fills the screen (no empty editor gap); once one is open the list shrinks
+   to a scrollable strip on top and the editor takes the rest (tap another note in
+   the strip to switch). All scoped to the media query — desktop is untouched. */
+@media (max-width: 768px) {
+	#notes-list-pane { width: 100%; min-width: 0; border-right: none; }
+
+	/* Master/detail: show the list OR the editor, never both. Stacking the two
+	   panes made the editor header overlap the list's select-all/Actions row.
+	   The list fills the screen until a note is opened; then the editor takes
+	   over full-screen and the "← List" button returns to it. */
+	#app-content:not(:has(#notes-editor-wrap:not([style*="none"]))) #notes-editor-pane { display: none; }
+	#app-content:has(#notes-editor-wrap:not([style*="none"])) #notes-list-pane { display: none; }
+
+	/* Roomier tap targets for touch. */
+	#notes-list li { padding: 12px; }
+	#notes-sort-dir { padding: 6px 14px; }
+	.notes-todo-box { padding: 0 8px; }
+
+	/* The bulk-drag hint is meaningless on touch (no HTML5 DnD) and with the nav
+	   collapsed, so there's nothing to drag onto. */
+	.notes-sel-hint { display: none; }
+
+	/* Editor header: title on its own full-width line above the action buttons,
+	   styled like the search field (normal weight/size, text caret, own row with
+	   a margin) instead of a big bold button that overlaps the controls. */
+	#notes-editor-head { flex-wrap: wrap; }
+	#notes-title {
+		flex: 1 1 100%; order: -1;
+		font-size: 1em; font-weight: normal; cursor: text; margin: 0 0 6px;
+	}
+	#notes-status { min-width: 0; }
+
+	/* Show the "← List" close control whenever a note is open. */
+	#app-content:has(#notes-editor-wrap:not([style*="none"])) #notes-back {
+		display: inline-flex; align-items: center;
+	}
+
+	/* Drop the math insert toolbar on phones — nobody's typing LaTeX on a phone,
+	   and it reclaims a row for the note content. (Math still renders in preview.) */
+	#notes-math-bar { display: none; }
+}

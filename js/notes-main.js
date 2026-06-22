@@ -698,7 +698,17 @@
 			renderList();
 		}).catch(showError);
 	}
-	function backToList() { state.metaView = 'list'; applyLayout(); }
+	function backToList() {
+		state.metaView = 'list';
+		// Also close the open note. This matters on mobile, where list and editor
+		// are shown one at a time and this is the "← List" / close control; it's
+		// harmless on desktop (the button only shows in metadata mode otherwise).
+		state.notePath = null;
+		el('notes-editor-wrap').style.display = 'none';
+		el('notes-editor-empty').style.display = '';
+		applyLayout();
+		renderList();
+	}
 	// Show the open note's notebook/location in the editor header.
 	function setLocation(path) {
 		var loc = el('notes-location');
