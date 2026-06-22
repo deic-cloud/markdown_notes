@@ -72,7 +72,8 @@ class JoplinSyncService {
 	private function putNote(string $uid, string $jid, array $f): void {
 		$title = (string)($f['title'] ?? '');
 		$body = (string)($f['body'] ?? '');
-		$parentRel = isset($f['parent_id']) && $f['parent_id'] !== '' ? $this->folderRel($uid, (string)$f['parent_id']) : '';
+		$parentId = (string)($f['parent_id'] ?? '');
+		$parentRel = $parentId !== '' ? $this->folderRel($uid, $parentId) : '';
 		$folder = $this->notesService->getNotesFolder($uid);
 		$dir = $parentRel === '' ? $folder : $this->ensureDir($folder, $parentRel);
 
@@ -115,22 +116,70 @@ class JoplinSyncService {
 				$node->move($dir->getPath() . '/' . basename($existingRel));
 				$existingRel = $wantRel;
 			}
-			$this->indexUpsert($uid, $jid, JoplinItem::TYPE_NOTE, $existingRel, '', '', '', $this->mtime($f), '');
+			$this->indexUpsert($uid, $jid, JoplinItem::TYPE_NOTE, $existingRel, $parentId, '', '', $this->mtime($f), '');
 			return;
 		}
 		$fname = $this->uniqueChild($dir, $fname);
 		$dir->newFile($fname, NoteFormat::serialize($title, $body, $meta));
 		$rel = ($parentRel === '' ? '' : $parentRel . '/') . $fname;
-		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, '', '', '', $this->mtime($f), '');
+		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, $parentId, '', '', $this->mtime($f), '');
 	}
 
 	private function putFolder(string $uid, string $jid, array $f): void {
 		$title = $this->safeName((string)($f['title'] ?? $jid));
-		$parentRel = isset($f['parent_id']) && $f['parent_id'] !== '' ? $this->folderRel($uid, (string)$f['parent_id']) : '';
-		$rel = ($parentRel === '' ? '' : $parentRel . '/') . $title;
+		$parentId = (string)($f['parent_id'] ?? '');
+		// Parent may not have been uploaded yet → place at root for now; the
+		// parent's own putFolder will re-home us when it arrives.
+		$base = $parentId !== '' ? $this->folderRel($uid, $parentId) : '';
 		$folder = $this->notesService->getNotesFolder($uid);
+		$rel = ($base === '' ? '' : $base . '/') . $title;
+		// Don't collide with a DIFFERENT folder already at this path (two folders
+		// can share a title under different/unresolved parents). The real title is
+		// kept in meta, so a temporary unique disk name is corrected on re-home.
+		if ($folder->nodeExists($rel) && $this->index->folderJidByRel($uid, $rel) !== $jid) {
+			$parentNode = $base === '' ? $folder : $this->ensureDir($folder, $base);
+			$rel = ($base === '' ? '' : $base . '/') . $this->uniqueChild($parentNode, $title);
+		}
 		$this->ensureDir($folder, $rel);
-		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_FOLDER, $rel, '', '', '', $this->mtime($f), '');
+		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_FOLDER, $rel, $parentId, '', '', $this->mtime($f), $title);
+		// Pull in any notes/subfolders that arrived before this folder existed.
+		$this->rehomeChildren($uid, $jid, $rel);
+	}
+
+	/**
+	 * Move notes/subfolders recorded as children of $folderJid (ref_id) into
+	 * $folderRel — handles items that arrived before their parent folder, and
+	 * cascades (moving a subfolder brings its whole subtree). Uses NotesService
+	 * ::rename, which also rebases relative image links for the depth change.
+	 */
+	private function rehomeChildren(string $uid, string $folderJid, string $folderRel): void {
+		$folder = $this->notesService->getNotesFolder($uid);
+		if (!$folder->nodeExists($folderRel) || !($folder->get($folderRel) instanceof Folder)) {
+			return;
+		}
+		$dest = $folder->get($folderRel);
+		foreach ($this->index->childrenByParent($uid, $folderJid) as $child) {
+			$cur = $child['rel_path'];
+			if ($cur === '' || $cur === $folderRel || !$folder->nodeExists($cur)) {
+				continue;
+			}
+			// Folders move under their REAL title (meta), correcting any temporary
+			// collision-avoidance name; notes keep their filename.
+			$name = ($child['type'] === JoplinItem::TYPE_FOLDER && $child['meta'] !== '')
+				? $this->safeName($child['meta']) : basename($cur);
+			if ($dest->nodeExists($name)) {
+				$name = $this->uniqueChild($dest, $name);
+			}
+			$want = $folderRel . '/' . $name;
+			if ($want === $cur) {
+				continue;
+			}
+			try {
+				$this->notesService->rename($uid, $cur, $want);
+			} catch (\Throwable $e) {
+				$this->logger->warning('joplin rehome ' . $cur . ' -> ' . $want . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			}
+		}
 	}
 
 	private function putTag(string $uid, string $jid, array $f): void {
@@ -218,7 +267,7 @@ class JoplinSyncService {
 		if ($type === JoplinItem::TYPE_FOLDER) {
 			$parentRel = dirname($row['rel_path']);
 			return JoplinItem::serialize([
-				'title' => basename($row['rel_path']),
+				'title' => (string)($row['meta'] ?? '') !== '' ? (string)$row['meta'] : basename($row['rel_path']),
 				'id' => $jid,
 				'parent_id' => $parentRel === '.' ? '' : $this->folderJid($uid, $parentRel),
 				'updated_time' => JoplinItem::msToTime((int)$row['updated_ms']),

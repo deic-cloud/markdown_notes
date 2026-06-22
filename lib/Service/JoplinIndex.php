@@ -202,6 +202,31 @@ class JoplinIndex {
 		return $jid;
 	}
 
+	/**
+	 * Notes/folders whose recorded parent is $parentJid (ref_id) — i.e. children
+	 * that may need re-homing into that folder once it exists.
+	 *
+	 * @return array<int, array{jid:string, rel_path:string, type:int, meta:string}>
+	 */
+	public function childrenByParent(string $uid, string $parentJid): array {
+		if ($parentJid === '') {
+			return [];
+		}
+		$q = $this->db->getQueryBuilder();
+		$q->select('jid', 'rel_path', 'type', 'meta')->from('markdown_notes_joplin')
+			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
+			->andWhere($q->expr()->eq('ref_id', $q->createNamedParameter($parentJid)))
+			->andWhere($q->expr()->in('type', $q->createNamedParameter(
+				[JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER], IQueryBuilder::PARAM_INT_ARRAY)));
+		$r = $q->executeQuery();
+		$out = [];
+		while ($row = $r->fetch()) {
+			$out[] = ['jid' => (string)$row['jid'], 'rel_path' => (string)$row['rel_path'], 'type' => (int)$row['type'], 'meta' => (string)($row['meta'] ?? '')];
+		}
+		$r->closeCursor();
+		return $out;
+	}
+
 	/** @return array<int, array{jid:string, link_note:string}> the note-tag link rows for a tag. */
 	public function linksForTag(string $uid, string $tagJid): array {
 		$q = $this->db->getQueryBuilder();
