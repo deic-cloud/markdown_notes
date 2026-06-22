@@ -93,9 +93,15 @@ class JoplinSyncService {
 				$meta[$k] = $f[$k];
 			}
 		}
-		$existingTags = $this->tagsForNote($uid, $jid);
-		if (!empty($existingTags)) {
-			$meta = NoteFormat::withTags($meta, $existingTags);
+		// Union the note's current footer tags with any tags from links Joplin
+		// already pushed for this note — so a note↔tag link that arrived BEFORE
+		// the note (bulk-import ordering) still lands its tag.
+		$tags = array_values(array_unique(array_merge(
+			$this->tagsForNote($uid, $jid),
+			$this->tagsFromLinks($uid, $jid),
+		)));
+		if (!empty($tags)) {
+			$meta = NoteFormat::withTags($meta, $tags);
 		}
 
 		$fname = $this->safeName($title !== '' ? $title : $jid) . '.md';
@@ -132,6 +138,35 @@ class JoplinSyncService {
 		// Index the Joplin tag (per-user); do NOT auto-create a global system tag —
 		// promotion is gated to template-referenced tags and handled by push().
 		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_TAG, '', '', '', '', $this->mtime($f), $name);
+		if ($name === '') {
+			return;
+		}
+		// A tag may arrive AFTER its note+link (when the link couldn't resolve the
+		// name yet). Re-apply it to every linked note that now exists, so the
+		// footer ends up correct regardless of upload order.
+		$folder = $this->notesService->getNotesFolder($uid);
+		foreach ($this->index->linksForTag($uid, $jid) as $lnk) {
+			$rel = $this->indexRelPath($uid, $lnk['link_note']);
+			if ($rel !== null && $folder->nodeExists($rel)) {
+				try {
+					$this->notesService->addTags($uid, $rel, [$name]);
+				} catch (\Throwable $e) {
+					// best effort
+				}
+			}
+		}
+	}
+
+	/** Tag names from indexed note_tag links referencing this note (covers link-before-note ordering). */
+	private function tagsFromLinks(string $uid, string $jid): array {
+		$out = [];
+		foreach ($this->index->linksForNote($uid, $jid) as $lnk) {
+			$name = $this->tagName($uid, $lnk['link_tag']);
+			if ($name !== null && $name !== '') {
+				$out[] = $name;
+			}
+		}
+		return $out;
 	}
 
 	private function putLink(string $uid, string $jid, array $f): void {
