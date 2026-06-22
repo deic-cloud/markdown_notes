@@ -202,6 +202,22 @@ class JoplinIndex {
 		return $jid;
 	}
 
+	/** @return array<int, array{jid:string, link_note:string}> the note-tag link rows for a tag. */
+	public function linksForTag(string $uid, string $tagJid): array {
+		$q = $this->db->getQueryBuilder();
+		$q->select('jid', 'link_note')->from('markdown_notes_joplin')
+			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
+			->andWhere($q->expr()->eq('type', $q->createNamedParameter(JoplinItem::TYPE_NOTE_TAG)))
+			->andWhere($q->expr()->eq('link_tag', $q->createNamedParameter($tagJid)));
+		$r = $q->executeQuery();
+		$out = [];
+		while ($row = $r->fetch()) {
+			$out[] = ['jid' => (string)$row['jid'], 'link_note' => (string)$row['link_note']];
+		}
+		$r->closeCursor();
+		return $out;
+	}
+
 	/** @return array<int, array{jid:string, link_tag:string}> the note-tag link rows for a note. */
 	public function linksForNote(string $uid, string $noteJid): array {
 		$q = $this->db->getQueryBuilder();
@@ -313,15 +329,35 @@ class JoplinIndex {
 		return (int)($row['c'] ?? 0);
 	}
 
-	/** Drop all note/folder/tag/link rows for a user (resources kept) ahead of a full rebuild. */
-	public function clearForRebuild(string $uid): void {
+	/**
+	 * Prune note/folder/tag/link/resource rows whose jid was NOT seen in a
+	 * rebuild (i.e. no longer on disk), preserving the jids of everything that
+	 * still exists. Joplin-owned verbatim items (settings/master_key/revisions)
+	 * are never touched. This replaces a clear-then-rebuild, which would
+	 * regenerate jids and make Joplin delete the old items.
+	 *
+	 * @param string[] $seenJids
+	 */
+	public function pruneExcept(string $uid, array $seenJids): int {
+		$keep = array_fill_keys($seenJids, true);
 		$q = $this->db->getQueryBuilder();
-		$q->delete('markdown_notes_joplin')
+		$q->select('jid')->from('markdown_notes_joplin')
 			->where($q->expr()->eq('uid', $q->createNamedParameter($uid)))
 			->andWhere($q->expr()->in('type', $q->createNamedParameter(
-				[JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER, JoplinItem::TYPE_TAG, JoplinItem::TYPE_NOTE_TAG],
+				[JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER, JoplinItem::TYPE_RESOURCE, JoplinItem::TYPE_TAG, JoplinItem::TYPE_NOTE_TAG],
 				IQueryBuilder::PARAM_INT_ARRAY,
 			)));
-		$q->executeStatement();
+		$r = $q->executeQuery();
+		$stale = [];
+		while ($row = $r->fetch()) {
+			if (!isset($keep[(string)$row['jid']])) {
+				$stale[] = (string)$row['jid'];
+			}
+		}
+		$r->closeCursor();
+		foreach ($stale as $jid) {
+			$this->delete($uid, $jid);
+		}
+		return count($stale);
 	}
 }

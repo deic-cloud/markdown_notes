@@ -129,15 +129,9 @@ class JoplinSyncService {
 
 	private function putTag(string $uid, string $jid, array $f): void {
 		$name = trim((string)($f['title'] ?? ''));
-		$tagId = '';
-		if ($name !== '') {
-			try {
-				$tagId = (string)$this->systemTagSync->ensureTagPublic($name);
-			} catch (\Throwable $e) {
-				// best effort
-			}
-		}
-		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_TAG, '', $tagId, '', '', $this->mtime($f), $name);
+		// Index the Joplin tag (per-user); do NOT auto-create a global system tag —
+		// promotion is gated to template-referenced tags and handled by push().
+		$this->indexUpsert($uid, $jid, JoplinItem::TYPE_TAG, '', '', '', '', $this->mtime($f), $name);
 	}
 
 	private function putLink(string $uid, string $jid, array $f): void {
@@ -495,9 +489,11 @@ class JoplinSyncService {
 
 	public function deleteItem(string $uid, string $jid): void {
 		$row = $this->indexRow($uid, $jid);
-		if ($row !== null
-			&& in_array((int)$row['type'], [JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER], true)
-			&& $row['rel_path'] !== '') {
+		if ($row === null) {
+			return;
+		}
+		$type = (int)$row['type'];
+		if (in_array($type, [JoplinItem::TYPE_NOTE, JoplinItem::TYPE_FOLDER], true) && $row['rel_path'] !== '') {
 			try {
 				$folder = $this->notesService->getNotesFolder($uid);
 				if ($folder->nodeExists($row['rel_path'])) {
@@ -506,8 +502,44 @@ class JoplinSyncService {
 			} catch (\Throwable $e) {
 				// ignore
 			}
+		} elseif ($type === JoplinItem::TYPE_NOTE_TAG) {
+			// Joplin removed a note↔tag link: strip that tag from the note's footer
+			// (the footer is what the web UI reads), not just the index row.
+			$this->untagNoteFooter($uid, (string)$row['link_note'], (string)$row['link_tag']);
+		} elseif ($type === JoplinItem::TYPE_TAG) {
+			// Joplin deleted the tag from all notes: strip it from every linked note.
+			$name = (string)$row['meta'];
+			foreach ($this->index->linksForTag($uid, $jid) as $lnk) {
+				$this->untagNoteFooterByName($uid, $lnk['link_note'], $name);
+			}
 		}
 		$this->indexDelete($uid, $jid);
+	}
+
+	private function untagNoteFooter(string $uid, string $noteJid, string $tagJid): void {
+		$name = $this->tagName($uid, $tagJid);
+		if ($name !== null) {
+			$this->untagNoteFooterByName($uid, $noteJid, $name);
+		}
+	}
+
+	private function untagNoteFooterByName(string $uid, string $noteJid, string $tagName): void {
+		if ($tagName === '') {
+			return;
+		}
+		$rel = $this->indexRelPath($uid, $noteJid);
+		if ($rel === null) {
+			return;
+		}
+		try {
+			$folder = $this->notesService->getNotesFolder($uid);
+			if ($folder->nodeExists($rel)) {
+				// removeTags rewrites the footer and reconciles the link row.
+				$this->notesService->removeTags($uid, $rel, [$tagName]);
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('joplin untag ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		}
 	}
 
 	/** @return array<int, array{path:string,updated_ms:int,size:int}> item files for PROPFIND. */
@@ -534,19 +566,25 @@ class JoplinSyncService {
 	 * @return array{folders:int,notes:int,tags:int,links:int,resources:int}
 	 */
 	public function rebuildIndex(string $uid): array {
-		$this->index->clearForRebuild($uid);
 		$counts = ['folders' => 0, 'notes' => 0, 'tags' => 0, 'links' => 0, 'resources' => 0];
 		$root = $this->notesService->getNotesFolder($uid);
+		// CRITICAL: reuse existing rows by natural key (rel_path / tag name /
+		// note+tag) so folder/tag/link/resource JIDS STAY STABLE across rebuilds.
+		// Regenerating them makes a Joplin client treat the old items as deleted —
+		// and deleting a folder cascades to its notes. We collect every jid we
+		// touch, then prune ONLY rows that no longer exist on disk.
+		$seen = [];
 		// Resources first, so note-body normalisation below can resolve :/id links.
-		$this->reindexResources($uid, $root);
-		$this->reindexWalk($uid, $root, '', $counts, true);
+		$this->reindexResources($uid, $root, $seen);
+		$this->reindexWalk($uid, $root, '', $counts, true, $seen);
+		$this->index->pruneExcept($uid, array_keys($seen));
 		$counts['tags'] = $this->index->countByType($uid, JoplinItem::TYPE_TAG);
 		$counts['resources'] = $this->index->countByType($uid, JoplinItem::TYPE_RESOURCE);
 		return $counts;
 	}
 
-	/** Index every file under attachments/ as a resource (stable jids); prune rows whose file is gone. */
-	private function reindexResources(string $uid, Folder $root): void {
+	/** Index every file under attachments/ as a resource (stable jids by rel_path). */
+	private function reindexResources(string $uid, Folder $root, array &$seen): void {
 		if ($root->nodeExists(self::ATTACH_DIR) && $root->get(self::ATTACH_DIR) instanceof Folder) {
 			$att = $root->get(self::ATTACH_DIR);
 			foreach ($att->getDirectoryListing() as $node) {
@@ -554,17 +592,12 @@ class JoplinSyncService {
 				if ($node instanceof Folder || $name === '' || $name[0] === '.') {
 					continue;
 				}
-				$this->index->getOrCreateResourceJid($uid, self::ATTACH_DIR . '/' . $name, $node->getMTime() * 1000);
-			}
-		}
-		foreach ($this->index->listResources($uid) as $r) {
-			if ($r['rel_path'] === '' || !$root->nodeExists($r['rel_path'])) {
-				$this->index->delete($uid, $r['jid']); // stale: file removed
+				$seen[$this->index->getOrCreateResourceJid($uid, self::ATTACH_DIR . '/' . $name, $node->getMTime() * 1000)] = true;
 			}
 		}
 	}
 
-	private function reindexWalk(string $uid, Folder $dir, string $base, array &$counts, bool $top): void {
+	private function reindexWalk(string $uid, Folder $dir, string $base, array &$counts, bool $top, array &$seen): void {
 		foreach ($dir->getDirectoryListing() as $node) {
 			$name = $node->getName();
 			if ($name === '' || $name[0] === '.') {
@@ -576,19 +609,19 @@ class JoplinSyncService {
 				if ($top && in_array($name, NotesService::SPECIAL, true)) {
 					continue;
 				}
-				$this->index->getOrCreateFolderJid($uid, $rel, $node->getMTime() * 1000);
+				$seen[$this->index->getOrCreateFolderJid($uid, $rel, $node->getMTime() * 1000)] = true;
 				$counts['folders']++;
-				$this->reindexWalk($uid, $node, $rel, $counts, false);
+				$this->reindexWalk($uid, $node, $rel, $counts, false, $seen);
 				continue;
 			}
 			if (substr($name, -3) !== '.md') {
 				continue;
 			}
-			$this->reindexNote($uid, $node, $rel, $counts);
+			$this->reindexNote($uid, $node, $rel, $counts, $seen);
 		}
 	}
 
-	private function reindexNote(string $uid, Node $file, string $rel, array &$counts): void {
+	private function reindexNote(string $uid, Node $file, string $rel, array &$counts, array &$seen): void {
 		$parsed = NoteFormat::parse($this->notesService->readContent($file));
 		$meta = $parsed['meta'];
 		$body = $parsed['body'];
@@ -614,22 +647,23 @@ class JoplinSyncService {
 			? JoplinItem::timeToMs((string)$meta['updated_time'])
 			: $file->getMTime() * 1000;
 		$this->index->upsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, '', '', '', $updatedMs, '');
+		$seen[$jid] = true;
 		$counts['notes']++;
 		foreach ($parsed['tags'] as $tagName) {
 			$tagName = trim((string)$tagName);
 			if ($tagName === '') {
 				continue;
 			}
-			$refId = '';
-			try {
-				$refId = (string)$this->systemTagSync->ensureTagPublic($tagName);
-			} catch (\Throwable $e) {
-				// best effort; the Joplin tag item only needs the name
-			}
-			$tagJid = $this->index->getOrCreateTagJid($uid, $tagName, $refId, $updatedMs);
-			$this->index->getOrCreateLinkJid($uid, $jid, $tagJid, $updatedMs);
+			// Joplin tag/link items index ALL footer tags (per-user, not global);
+			// global system-tag promotion is gated and handled by push() below.
+			$tagJid = $this->index->getOrCreateTagJid($uid, $tagName, '', $updatedMs);
+			$seen[$tagJid] = true;
+			$seen[$this->index->getOrCreateLinkJid($uid, $jid, $tagJid, $updatedMs)] = true;
 			$counts['links']++;
 		}
+		// Eventual system-tag reconciliation: push() assigns template-referenced
+		// tags and unassigns the rest (gates to promotable tags internally).
+		$this->systemTagSync->push($uid, (int)$file->getId(), $parsed['tags']);
 	}
 
 	// ── tree helpers ─────────────────────────────────────────────────────────

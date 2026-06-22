@@ -104,7 +104,7 @@ class ApiController extends OCSController {
 		return $this->run(function () use ($path, $title, $body, $tags, $is_todo, $todo_due) {
 			$todo = $is_todo === '' ? null : ($is_todo === '1' || $is_todo === 'true');
 			$note = $this->notesService->saveNote($this->uid(), $path, $title, $body, $tags, $todo, $todo_due);
-			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
 			$this->seedTagFields($note['tags']);
 			return $note;
 		});
@@ -116,7 +116,7 @@ class ApiController extends OCSController {
 			$varsArr = $vars !== '' ? (json_decode($vars, true) ?: []) : [];
 			$isTodo = $is_todo === '1' || $is_todo === 'true';
 			$note = $this->notesService->createNote($this->uid(), $notebook, $title, $template, $isTodo, $varsArr);
-			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
 			// Register the template's typed variables as meta_data fields on the
 			// note's tags and store the entered values, so the tag's column appears
 			// in the list view (no-op without meta_data). Done after push so the
@@ -174,7 +174,7 @@ class ApiController extends OCSController {
 	public function addTags(string $path, array $tags = []): DataResponse {
 		return $this->run(function () use ($path, $tags) {
 			$note = $this->notesService->addTags($this->uid(), $path, $tags);
-			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
 			$this->seedTagFields($note['tags']);
 			return $note;
 		});
@@ -199,7 +199,7 @@ class ApiController extends OCSController {
 	public function untag(string $path, array $tags = []): DataResponse {
 		return $this->run(function () use ($path, $tags) {
 			$note = $this->notesService->removeTags($this->uid(), $path, $tags);
-			$this->systemTagSync->push((int)$note['fileid'], $note['tags']);
+			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
 			return $note;
 		});
 	}

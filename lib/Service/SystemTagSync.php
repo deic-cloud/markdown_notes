@@ -31,6 +31,9 @@ class SystemTagSync {
 	/** fileids currently being pushed, so our own events don't echo back. */
 	private static array $inFlight = [];
 
+	/** Per-request memo of each user's promotable (template-referenced) tag names. */
+	private array $promotableCache = [];
+
 	public function __construct(
 		private IRootFolder $rootFolder,
 		private ISystemTagManager $tagManager,
@@ -41,13 +44,22 @@ class SystemTagSync {
 	}
 
 	/** Footer → systemtags: make the file's user tags exactly match $tags. */
-	public function push(int $fileid, array $tags): void {
+	public function push(string $uid, int $fileid, array $tags): void {
 		if ($fileid <= 0) {
 			return;
 		}
 		try {
+			$promotable = $this->promotableTags($uid);
 			$desired = [];
 			foreach ($this->normalize($tags) as $name) {
+				// Gate: only tags referenced by a template become global system tags,
+				// so the shared (cross-silo) tag namespace isn't flooded with every
+				// note tag. Non-promotable tags live only in the note footer. Managed
+				// system tags no longer in $desired are unassigned below — so this
+				// also cleans up assignments for tags that lost their template.
+				if (!in_array($name, $promotable, true)) {
+					continue;
+				}
 				$desired[$this->ensureTag($name)] = true;
 			}
 			$current = $this->managedTagIds($fileid);
@@ -164,6 +176,18 @@ class SystemTagSync {
 	/** Public wrapper: ensure a user-visible+assignable system tag exists, return its id. */
 	public function ensureTagPublic(string $name): int {
 		return $this->ensureTag($name);
+	}
+
+	/** Tag names referenced by the user's templates — the only ones promoted to system tags. */
+	private function promotableTags(string $uid): array {
+		if (!array_key_exists($uid, $this->promotableCache)) {
+			try {
+				$this->promotableCache[$uid] = $this->notesService->templateTags($uid);
+			} catch (\Throwable $e) {
+				$this->promotableCache[$uid] = [];
+			}
+		}
+		return $this->promotableCache[$uid];
 	}
 
 	private function ensureTag(string $name): int {
