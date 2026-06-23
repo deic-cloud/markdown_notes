@@ -212,6 +212,12 @@ class ApiController extends OCSController {
 		});
 	}
 
+	/** Reclaim attachment files no note references any more (called once after a delete op). */
+	#[NoAdminRequired]
+	public function gc(): DataResponse {
+		return $this->run(fn () => ['deleted' => $this->notesService->gcOrphanAttachments($this->uid())]);
+	}
+
 	#[NoAdminRequired]
 	public function createNotebook(string $parent = '', string $name = ''): DataResponse {
 		return $this->run(fn () => $this->notesService->createNotebook($this->uid(), $parent, $name));

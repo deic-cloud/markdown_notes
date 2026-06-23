@@ -5,7 +5,10 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: {} };
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: {}, nbExpanded: {}, nbSelected: [], nbAnchor: null };
+	// Which notebooks are expanded in the tree — persisted across reloads.
+	try { state.nbExpanded = JSON.parse(localStorage.getItem('markdown_notes_nbExpanded') || '{}') || {}; } catch (e) { /* ignore */ }
+	function saveNbExpanded() { try { localStorage.setItem('markdown_notes_nbExpanded', JSON.stringify(state.nbExpanded)); } catch (e) { /* ignore */ } }
 	// epoch-ms (Joplin) ↔ <input type=datetime-local> value (local time)
 	function msToInput(ms) {
 		var d = new Date(Number(ms));
@@ -173,6 +176,92 @@
 		var root = el('notes-notebooks');
 		root.innerHTML = '';
 		root.appendChild(buildNbList(tree));
+		// Drop selected paths that no longer exist (e.g. after a delete), then
+		// refresh highlights + the selection bar.
+		var present = {};
+		root.querySelectorAll('li[data-notebook]').forEach(function (li) { present[li.dataset.notebook] = true; });
+		state.nbSelected = state.nbSelected.filter(function (pth) { return present[pth]; });
+		updateNbSelectionUI();
+	}
+	// Notebook paths currently visible in the sidebar, in render order (collapsed
+	// children are excluded so a Shift-range matches what the user can see).
+	function visibleNbPaths() {
+		var out = [];
+		el('notes-notebooks').querySelectorAll('li[data-notebook] > .notes-nb-row').forEach(function (row) {
+			if (row.offsetParent !== null) { out.push(row.parentNode.dataset.notebook); }
+		});
+		return out;
+	}
+	function toggleNbSelect(path) {
+		var i = state.nbSelected.indexOf(path);
+		if (i >= 0) {
+			state.nbSelected.splice(i, 1);
+			// Deselecting the open notebook also closes it: drop the highlight AND
+			// revert the list to "All notes" (selection and contents stay in step).
+			if (state.mode === 'notebook' && state.notebook === path) {
+				state.mode = 'all'; state.notebook = ''; state.tag = '';
+				loadList();
+			}
+			if (state.nbAnchor === path) { state.nbAnchor = state.nbSelected[state.nbSelected.length - 1] || null; }
+		} else {
+			state.nbSelected.push(path);
+			state.nbAnchor = path;
+		}
+		updateNbSelectionUI();
+	}
+	function rangeNbSelect(path) {
+		var order = visibleNbPaths();
+		var anchor = state.nbAnchor && order.indexOf(state.nbAnchor) >= 0 ? state.nbAnchor : path;
+		var a = order.indexOf(anchor), b = order.indexOf(path);
+		if (a < 0 || b < 0) { toggleNbSelect(path); return; }
+		if (a > b) { var t2 = a; a = b; b = t2; }
+		state.nbSelected = order.slice(a, b + 1);
+		updateNbSelectionUI();
+	}
+	function clearNbSelect() {
+		if (!state.nbSelected.length) { return; }
+		state.nbSelected = [];
+		state.nbAnchor = null;
+		updateNbSelectionUI();
+	}
+	// Selection shows ONLY as a background highlight (no caret/accent). A single
+	// trash icon in the "Notebooks" header is revealed while anything is selected
+	// and deletes the whole selection — nothing is inserted into the list, so rows
+	// never shift.
+	function updateNbSelectionUI() {
+		el('notes-notebooks').querySelectorAll('li[data-notebook] > .notes-nb-row').forEach(function (row) {
+			row.classList.toggle('nb-selected', state.nbSelected.indexOf(row.parentNode.dataset.notebook) >= 0);
+		});
+		var del = el('notes-nb-delall');
+		if (del) {
+			del.style.display = state.nbSelected.length ? 'inline-flex' : 'none';
+			del.title = state.nbSelected.length <= 1
+				? t('markdown_notes', 'Delete notebook')
+				: t('markdown_notes', 'Delete {n} selected notebooks').replace('{n}', state.nbSelected.length);
+		}
+	}
+	// Delete every selected notebook (and its contents) after one confirmation,
+	// then reclaim now-orphaned attachments and refresh.
+	function deleteSelectedNotebooks() {
+		var paths = state.nbSelected.slice();
+		if (!paths.length) { return; }
+		var msg = paths.length === 1
+			? t('markdown_notes', 'Delete the notebook "{name}" and all notes inside it?').replace('{name}', paths[0].split('/').pop())
+			: t('markdown_notes', 'Delete {n} notebooks and all notes inside them?').replace('{n}', paths.length);
+		ncConfirm(msg, t('markdown_notes', 'Delete notebook'), function () {
+			paths.reduce(function (chain, pth) {
+				return chain.then(function () { return post('/notebook/delete', p('path', pth)); });
+			}, Promise.resolve()).then(function () {
+				state.nbSelected = [];
+				state.nbAnchor = null;
+				// If the open context was inside a deleted notebook, fall back to all.
+				if (state.mode === 'notebook' && paths.some(function (pth) {
+					return state.notebook === pth || state.notebook.indexOf(pth + '/') === 0;
+				})) { state.mode = 'all'; state.notebook = ''; }
+				gc();
+				return refreshAfterChange();
+			}).catch(showError);
+		});
 	}
 	function buildNbList(nodes) {
 		var ul = document.createElement('ul');
@@ -181,8 +270,27 @@
 			li.dataset.notebook = n.path;
 			var row = document.createElement('div');
 			row.className = 'notes-nb-row';
-			row.innerHTML = '<span class="icon-folder"></span><span class="notes-nb-name">' + esc(n.name) + '</span>';
-			row.addEventListener('click', function (e) { e.stopPropagation(); selectNotebook(n.path); });
+			if (state.nbSelected.indexOf(n.path) >= 0) { row.classList.add('nb-selected'); }
+			var hasKids = n.children && n.children.length;
+			var expanded = !!state.nbExpanded[n.path];
+			row.innerHTML =
+				'<span class="notes-nb-toggle">' + (hasKids ? (expanded ? '▾' : '▸') : '') + '</span>' +
+				'<span class="icon-folder"></span>' +
+				'<span class="notes-nb-name">' + esc(n.name) + '</span>' +
+				'<span class="notes-nb-count">' + (n.count || 0) + '</span>';
+			// Plain click both selects the notebook (one-item selection) and opens it
+			// in the list. Cmd/Ctrl-click adds/removes a notebook from that selection;
+			// Shift-click extends a range from it — neither re-opens, so you can build
+			// a multi-selection on top of the open one. Checkbox-free by design.
+			row.addEventListener('click', function (e) {
+				e.stopPropagation();
+				if (e.metaKey || e.ctrlKey) { e.preventDefault(); toggleNbSelect(n.path); return; }
+				if (e.shiftKey) { e.preventDefault(); rangeNbSelect(n.path); return; }
+				state.nbSelected = [n.path];
+				state.nbAnchor = n.path;
+				selectNotebook(n.path);
+				updateNbSelectionUI();
+			});
 			row.draggable = true;
 			row.addEventListener('dragstart', function (e) {
 				e.stopPropagation();
@@ -196,7 +304,21 @@
 				else { dropMove(draggedPaths, n.path); }
 			});
 			li.appendChild(row);
-			if (n.children && n.children.length) { li.appendChild(buildNbList(n.children)); }
+			if (hasKids) {
+				var childUl = buildNbList(n.children);
+				if (!expanded) { childUl.style.display = 'none'; }
+				li.appendChild(childUl);
+				// Toggle expand/collapse without selecting the notebook.
+				var tog = row.querySelector('.notes-nb-toggle');
+				tog.addEventListener('click', function (e) {
+					e.stopPropagation();
+					var show = childUl.style.display === 'none';
+					childUl.style.display = show ? '' : 'none';
+					tog.textContent = show ? '▾' : '▸';
+					if (show) { state.nbExpanded[n.path] = true; } else { delete state.nbExpanded[n.path]; }
+					saveNbExpanded();
+				});
+			}
 			ul.appendChild(li);
 		});
 		return ul;
@@ -235,7 +357,7 @@
 	// Context = a notebook (or "all"); a tag is a FILTER layered on top of it
 	// (refines, doesn't replace). Selecting a context clears the filter; clicking
 	// a tag toggles it.
-	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; loadList(); }
+	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; clearNbSelect(); loadList(); }
 	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; loadList(); }
 	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; state.colFilters = {}; loadList(); }
 
@@ -800,11 +922,15 @@
 				state.notePath = null;
 				el('notes-editor-wrap').style.display = 'none';
 				el('notes-editor-empty').style.display = 'block';
+				gc();
 				return refreshAfterChange();
 			}).catch(showError);
 		});
 	}
 	function refreshAfterChange() { return Promise.all([loadList(), loadTree()]); }
+	// Reclaim attachment files no note references any more. Fire-and-forget, run
+	// ONCE per delete operation (never per note) so bulk deletes stay fast.
+	function gc() { return post('/gc').catch(function () {}); }
 
 	// ── Create ────────────────────────────────────────────────────────────────
 	function newNote() { createFromTemplate(false); }
@@ -1071,6 +1197,7 @@
 						el('notes-editor-wrap').style.display = 'none';
 						el('notes-editor-empty').style.display = 'block';
 					}
+					gc(); // one sweep after the whole batch
 				});
 			});
 		}
@@ -1161,6 +1288,8 @@
 		// dragged (possibly deeply nested) notebook.
 		var nbHeader = el('notes-nb-header');
 		if (nbHeader) { makeDropTarget(nbHeader, function () { if (draggedNotebook) { dropMoveNotebook(draggedNotebook, ''); } }); }
+		var nbDelAll = el('notes-nb-delall');
+		if (nbDelAll) { nbDelAll.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); deleteSelectedNotebooks(); }); }
 		el('notes-new-notebook').addEventListener('click', newNotebook);
 		el('notes-new-note').addEventListener('click', newNote);
 		el('notes-new-todo').addEventListener('click', newTodo);
@@ -1205,6 +1334,21 @@
 				if (b.dataset.block) { before += '\n'; after = '\n' + after; } // block math on its own lines
 				insertMath(before, after);
 			});
+		});
+		// Joplin sync target URL (full, incl. host) for the user to paste into Joplin.
+		var syncUrl = window.location.origin + (OC.webroot || '') + '/index.php/apps/markdown_notes/joplin';
+		el('notes-sync-url').textContent = syncUrl;
+		el('notes-sync-copy').addEventListener('click', function () {
+			if (navigator.clipboard) {
+				navigator.clipboard.writeText(syncUrl).catch(function () {});
+			} else {
+				try { var r = document.createRange(); r.selectNode(el('notes-sync-url')); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand('copy'); s.removeAllRanges(); } catch (e) { /* ignore */ }
+			}
+			// brief "Copied" feedback in the title line, then restore
+			var titleEl = document.querySelector('.notes-syncbox-title');
+			var orig = titleEl.textContent;
+			titleEl.textContent = t('markdown_notes', 'Copied to clipboard');
+			setTimeout(function () { titleEl.textContent = orig; }, 1200);
 		});
 		Promise.all([loadTree(), loadTemplates()]).then(selectAll).catch(showError);
 	});

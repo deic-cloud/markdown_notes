@@ -88,9 +88,16 @@ class NotesService {
 				continue;
 			}
 			$rel = $base === '' ? $name : $base . '/' . $name;
+			$count = 0;
+			foreach ($node->getDirectoryListing() as $c) {
+				if (!($c instanceof Folder) && substr($c->getName(), -3) === '.md') {
+					$count++;
+				}
+			}
 			$out[] = [
 				'name'     => $name,
 				'path'     => $rel,
+				'count'    => $count,
 				'children' => $this->walkNotebooks($node, $rel, false),
 			];
 		}
@@ -563,6 +570,87 @@ class NotesService {
 		}
 		$rel = str_repeat('../', count($from) - $i) . implode('/', array_slice($to, $i));
 		return $rel === '' ? '.' : $rel;
+	}
+
+	// ── orphaned-attachment garbage collection ────────────────────────────────
+	// An attachment is kept while ANY note still links it (notes can share a
+	// resource after a Joplin import) and removed once the last reference goes,
+	// so deleting notes reclaims storage automatically. One scan over all notes;
+	// the caller (a single /gc request after a delete op) runs it once, never
+	// per-note, so a bulk delete stays O(notes) not O(notes^2).
+
+	/** @return int attachment files deleted */
+	public function gcOrphanAttachments(string $uid): int {
+		$root = $this->notesFolder($uid);
+		if (!$root->nodeExists('attachments') || !($root->get('attachments') instanceof Folder)) {
+			return 0;
+		}
+		$referenced = [];
+		$this->collectReferencedAttachments($uid, $root, '', $referenced);
+		$deleted = 0;
+		foreach ($root->get('attachments')->getDirectoryListing() as $f) {
+			$name = $f->getName();
+			if ($f instanceof Folder || $name === '' || $name[0] === '.') {
+				continue;
+			}
+			if (isset($referenced['attachments/' . $name])) {
+				continue;
+			}
+			try {
+				$f->delete();
+				$jid = $this->index->resourceJidByRel($uid, 'attachments/' . $name);
+				if ($jid !== null) {
+					$this->index->delete($uid, $jid);
+				}
+				$deleted++;
+			} catch (\Throwable $e) {
+				$this->logger->warning('markdown_notes gc attachment ' . $name . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			}
+		}
+		return $deleted;
+	}
+
+	/** Collect every attachments/ path still referenced by a note (relative links + Joplin :/id). */
+	private function collectReferencedAttachments(string $uid, Folder $dir, string $base, array &$ref): void {
+		foreach ($dir->getDirectoryListing() as $node) {
+			$name = $node->getName();
+			if ($name === '' || $name[0] === '.') {
+				continue;
+			}
+			if ($node instanceof Folder) {
+				if ($base === '' && in_array($name, self::SPECIAL, true)) {
+					continue;
+				}
+				$this->collectReferencedAttachments($uid, $node, $base === '' ? $name : $base . '/' . $name, $ref);
+				continue;
+			}
+			if (substr($name, -3) !== '.md') {
+				continue;
+			}
+			$rel = $base === '' ? $name : $base . '/' . $name;
+			$noteDir = $this->dirOf($rel);
+			$body = NoteFormat::parse($this->readContent($node))['body'];
+			if (preg_match_all('/!?\[[^\]]*\]\(([^)\s]+)/', $body, $m)) {
+				foreach ($m[1] as $link) {
+					if ($link === '' || $link[0] === '/' || $link[0] === '#' || strpos($link, ':/') === 0 || preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
+						continue;
+					}
+					$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
+					if ($t !== null && strpos($t, 'attachments/') === 0) {
+						$ref[$t] = true;
+					}
+				}
+			}
+			// Un-converted Joplin :/id links → resolve to the resource's file path.
+			if (preg_match_all('/\(:\/([0-9a-f]{32})/', $body, $mm)) {
+				foreach ($mm[1] as $rid) {
+					$rr = $this->index->row($uid, $rid);
+					if ($rr !== null && (int)$rr['type'] === JoplinItem::TYPE_RESOURCE && (string)$rr['rel_path'] !== '') {
+						$ref[(string)$rr['rel_path']] = true;
+					}
+				}
+			}
+		}
 	}
 
 	// ── Templates ───────────────────────────────────────────────────────────
