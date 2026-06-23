@@ -87,22 +87,39 @@ class NotesService {
 			if ($top && in_array($name, self::SPECIAL, true)) {
 				continue;
 			}
-			$rel = $base === '' ? $name : $base . '/' . $name;
-			$count = 0;
-			foreach ($node->getDirectoryListing() as $c) {
-				if (!($c instanceof Folder) && substr($c->getName(), -3) === '.md') {
-					$count++;
-				}
-			}
-			$out[] = [
-				'name'     => $name,
-				'path'     => $rel,
-				'count'    => $count,
-				'children' => $this->walkNotebooks($node, $rel, false),
-			];
+			$out[] = $this->notebookNode($node, $base === '' ? $name : $base . '/' . $name);
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
 		return $out;
+	}
+
+	/**
+	 * Describe one notebook in a SINGLE directory-listing pass: tally its own .md
+	 * files and recurse into sub-notebooks. `count` is the RECURSIVE total — the
+	 * notebook's own notes plus every descendant's — so the sidebar shows the full
+	 * tally (like Joplin), not just direct children. No extra I/O versus the old
+	 * direct-only count: each folder is still listed exactly once.
+	 */
+	private function notebookNode(Folder $node, string $rel): array {
+		$direct = 0;
+		$children = [];
+		foreach ($node->getDirectoryListing() as $c) {
+			$cname = $c->getName();
+			if ($cname === '' || $cname[0] === '.') {
+				continue;
+			}
+			if ($c instanceof Folder) {
+				$children[] = $this->notebookNode($c, $rel . '/' . $cname);
+			} elseif (substr($cname, -3) === '.md') {
+				$direct++;
+			}
+		}
+		usort($children, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
+		$total = $direct;
+		foreach ($children as $ch) {
+			$total += $ch['count'];
+		}
+		return ['name' => $node->getName(), 'path' => $rel, 'count' => $total, 'children' => $children];
 	}
 
 	public function createNotebook(string $uid, string $parentRel, string $name): array {
@@ -131,17 +148,19 @@ class NotesService {
 		$this->deindexTree($uid, $rel);
 	}
 
-	public function rename(string $uid, string $rel, string $targetRel): array {
+	public function rename(string $uid, string $rel, string $targetRel, bool $bump = true): array {
 		$node = $this->relNode($uid, $rel);
 		$folder = $this->notesFolder($uid);
 		$rel = trim($rel, '/');
 		$targetRel = trim($targetRel, '/');
 		$isFolder = $node instanceof Folder;
 		$node->move($folder->getPath() . '/' . $targetRel);
-		$this->repathIndex($uid, $rel, $targetRel);
+		$this->repathIndex($uid, $rel, $targetRel, $bump);
 		// A depth change alters the `../` count of relative image links, so rebase
-		// the moved note's body (or every note under a moved notebook).
-		$this->rebaseMovedLinks($uid, $rel, $targetRel, $isFolder);
+		// the moved note's body (or every note under a moved notebook). $bump=false
+		// for an inbound Joplin rehome — Joplin already knows the note's location,
+		// so we must NOT bump its updated_time (that would trigger a needless re-sync).
+		$this->rebaseMovedLinks($uid, $rel, $targetRel, $isFolder, $bump);
 		return ['path' => $targetRel];
 	}
 
@@ -381,7 +400,13 @@ class NotesService {
 				? JoplinItem::timeToMs((string)$meta['updated_time'])
 				: $this->nowMs();
 			$this->indexAncestorFolders($uid, $rel, $updatedMs);
-			$this->index->upsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, '', '', '', $updatedMs, '');
+			// Preserve any parent_id Joplin recorded (ref_id): a footer/tag write must
+			// not blank it, or a note still awaiting its parent folder would be lost
+			// to rehomeChildren. New (web-UI) notes have no row yet → empty, and
+			// getItem derives their parent from the on-disk folder regardless.
+			$existing = $this->index->row($uid, $jid);
+			$refId = $existing !== null ? (string)($existing['ref_id'] ?? '') : '';
+			$this->index->upsert($uid, $jid, JoplinItem::TYPE_NOTE, $rel, $refId, '', '', $updatedMs, '');
 			// Reconcile this note's tag links against its current footer tags.
 			$desired = [];
 			foreach (NoteFormat::tags($meta) as $tagName) {
@@ -451,10 +476,11 @@ class NotesService {
 		}
 	}
 
-	private function repathIndex(string $uid, string $fromRel, string $toRel): void {
+	private function repathIndex(string $uid, string $fromRel, string $toRel, bool $bump = true): void {
 		try {
-			// Bump updated_ms so the move propagates to Joplin clients.
-			$this->index->repath($uid, trim($fromRel, '/'), trim($toRel, '/'), $this->nowMs());
+			// Bump updated_ms so a USER move propagates to Joplin clients; skip it for
+			// an inbound rehome so we don't make Joplin re-fetch what it just sent.
+			$this->index->repath($uid, trim($fromRel, '/'), trim($toRel, '/'), $bump ? $this->nowMs() : null);
 			$this->indexAncestorFolders($uid, trim($toRel, '/'), $this->nowMs());
 		} catch (\Throwable $e) {
 			$this->logger->warning('markdown_notes joplin index (move ' . $fromRel . '): ' . $e->getMessage(), ['app' => 'markdown_notes']);
@@ -466,15 +492,16 @@ class NotesService {
 	// so a note changing depth must have its image links rewritten. Failures are
 	// logged but never block the move.
 
-	private function rebaseMovedLinks(string $uid, string $oldRel, string $newRel, bool $isFolder): void {
+	private function rebaseMovedLinks(string $uid, string $oldRel, string $newRel, bool $isFolder, bool $bumpTime = true): void {
 		try {
 			$folder = $this->notesFolder($uid);
 			if (!$isFolder) {
 				if (substr($newRel, -3) === '.md' && $folder->nodeExists($newRel)) {
 					// A direct note move changes its parent_id: bump updated_time so
 					// Joplin applies the move (it compares the item's content
-					// updated_time, not the WebDAV file timestamp).
-					$this->rebaseNoteFile($folder->get($newRel), $oldRel, $newRel, true);
+					// updated_time, not the WebDAV file timestamp). Suppressed for an
+					// inbound rehome ($bumpTime=false) — Joplin already has the move.
+					$this->rebaseNoteFile($folder->get($newRel), $oldRel, $newRel, $bumpTime);
 				}
 				return;
 			}

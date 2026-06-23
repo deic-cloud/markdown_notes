@@ -175,7 +175,9 @@ class JoplinSyncService {
 				continue;
 			}
 			try {
-				$this->notesService->rename($uid, $cur, $want);
+				// $bump=false: inbound rehome, so don't bump updated_time (Joplin
+				// already knows where the item goes — avoids a needless re-fetch).
+				$this->notesService->rename($uid, $cur, $want, false);
 			} catch (\Throwable $e) {
 				$this->logger->warning('joplin rehome ' . $cur . ' -> ' . $want . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
 			}
