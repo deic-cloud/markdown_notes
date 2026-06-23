@@ -250,13 +250,17 @@ class JoplinSyncService {
 			}
 			$parsed = NoteFormat::parse($this->notesService->readContent($folder->get($row['rel_path'])));
 			$parentRel = dirname($row['rel_path']);
+			$created = $parsed['meta']['created_time'] ?? JoplinItem::msToTime((int)$row['updated_ms']);
+			$updated = $parsed['meta']['updated_time'] ?? JoplinItem::msToTime((int)$row['updated_ms']);
 			$fields = [
 				'title' => $parsed['title'],
 				'body' => $this->bodyToJoplin($uid, (string)$row['rel_path'], $parsed['body']),
 				'id' => $jid,
 				'parent_id' => $parentRel === '.' ? '' : $this->folderJid($uid, $parentRel),
-				'created_time' => $parsed['meta']['created_time'] ?? JoplinItem::msToTime((int)$row['updated_ms']),
-				'updated_time' => $parsed['meta']['updated_time'] ?? JoplinItem::msToTime((int)$row['updated_ms']),
+				'created_time' => $created,
+				'updated_time' => $updated,
+				'user_created_time' => $created,
+				'user_updated_time' => $updated,
 				'is_todo' => !empty($parsed['meta']['is_todo']) ? '1' : '0',
 				'todo_due' => $parsed['meta']['todo_due'] ?? '0',
 				'todo_completed' => $parsed['meta']['todo_completed'] ?? '0',
@@ -266,28 +270,40 @@ class JoplinSyncService {
 		}
 		if ($type === JoplinItem::TYPE_FOLDER) {
 			$parentRel = dirname($row['rel_path']);
+			$t = JoplinItem::msToTime((int)$row['updated_ms']);
 			return JoplinItem::serialize([
 				'title' => (string)($row['meta'] ?? '') !== '' ? (string)$row['meta'] : basename($row['rel_path']),
 				'id' => $jid,
 				'parent_id' => $parentRel === '.' ? '' : $this->folderJid($uid, $parentRel),
-				'updated_time' => JoplinItem::msToTime((int)$row['updated_ms']),
+				'created_time' => $t,
+				'updated_time' => $t,
+				'user_created_time' => $t,
+				'user_updated_time' => $t,
 				'type_' => JoplinItem::TYPE_FOLDER,
 			]);
 		}
 		if ($type === JoplinItem::TYPE_TAG) {
+			$t = JoplinItem::msToTime((int)$row['updated_ms']);
 			return JoplinItem::serialize([
 				'title' => (string)$row['meta'],
 				'id' => $jid,
-				'updated_time' => JoplinItem::msToTime((int)$row['updated_ms']),
+				'created_time' => $t,
+				'updated_time' => $t,
+				'user_created_time' => $t,
+				'user_updated_time' => $t,
 				'type_' => JoplinItem::TYPE_TAG,
 			]);
 		}
 		if ($type === JoplinItem::TYPE_NOTE_TAG) {
+			$t = JoplinItem::msToTime((int)$row['updated_ms']);
 			return JoplinItem::serialize([
 				'id' => $jid,
 				'note_id' => (string)$row['link_note'],
 				'tag_id' => (string)$row['link_tag'],
-				'updated_time' => JoplinItem::msToTime((int)$row['updated_ms']),
+				'created_time' => $t,
+				'updated_time' => $t,
+				'user_created_time' => $t,
+				'user_updated_time' => $t,
 				'type_' => JoplinItem::TYPE_NOTE_TAG,
 			]);
 		}
