@@ -212,6 +212,35 @@ class ApiController extends OCSController {
 		});
 	}
 
+	/**
+	 * Delete many notes in ONE request. Idempotent per note: an already-gone path
+	 * is counted as missing, not an error, so a retry never storms 404s. Reclaims
+	 * orphaned attachments once at the end. Lets a bulk delete of hundreds of notes
+	 * be a single round-trip instead of one POST per note (which raced itself).
+	 *
+	 * @param string[] $paths
+	 */
+	#[NoAdminRequired]
+	public function deleteNotes(array $paths = []): DataResponse {
+		return $this->run(function () use ($paths) {
+			$uid = $this->uid();
+			$deleted = 0;
+			$missing = 0;
+			foreach ($paths as $path) {
+				try {
+					$this->notesService->deleteNote($uid, (string)$path);
+					$deleted++;
+				} catch (NotFoundException $e) {
+					$missing++;
+				} catch (NotesException $e) {
+					$missing++;
+				}
+			}
+			$reclaimed = $deleted > 0 ? $this->notesService->gcOrphanAttachments($uid) : 0;
+			return ['deleted' => $deleted, 'missing' => $missing, 'reclaimed' => $reclaimed];
+		});
+	}
+
 	/** Reclaim attachment files no note references any more (called once after a delete op). */
 	#[NoAdminRequired]
 	public function gc(): DataResponse {
@@ -228,6 +257,34 @@ class ApiController extends OCSController {
 		return $this->run(function () use ($path) {
 			$this->notesService->deleteNotebook($this->uid(), $path);
 			return ['ok' => true];
+		});
+	}
+
+	/**
+	 * Delete many notebooks (and their contents) in ONE request. Idempotent: a
+	 * path already gone — e.g. a child whose selected parent was deleted first —
+	 * counts as missing, not an error. Reclaims orphaned attachments once at end.
+	 *
+	 * @param string[] $paths
+	 */
+	#[NoAdminRequired]
+	public function deleteNotebooks(array $paths = []): DataResponse {
+		return $this->run(function () use ($paths) {
+			$uid = $this->uid();
+			$deleted = 0;
+			$missing = 0;
+			foreach ($paths as $path) {
+				try {
+					$this->notesService->deleteNotebook($uid, (string)$path);
+					$deleted++;
+				} catch (NotFoundException $e) {
+					$missing++;
+				} catch (NotesException $e) {
+					$missing++;
+				}
+			}
+			$reclaimed = $deleted > 0 ? $this->notesService->gcOrphanAttachments($uid) : 0;
+			return ['deleted' => $deleted, 'missing' => $missing, 'reclaimed' => $reclaimed];
 		});
 	}
 

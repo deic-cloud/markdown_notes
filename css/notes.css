@@ -1,3 +1,14 @@
+/* Busy overlay — shown during a bulk delete/convert (one server request that may
+   loop over hundreds of notes). The backdrop also blocks re-triggering the op. */
+.notes-busy { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .25); }
+.notes-busy-box { display: flex; align-items: center; gap: 14px; padding: 18px 24px;
+	background: var(--color-main-background); color: var(--color-main-text);
+	border-radius: var(--border-radius-large, 8px); box-shadow: 0 2px 12px rgba(0, 0, 0, .3); }
+.notes-busy-spin { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%;
+	border: 3px solid var(--color-border, #ccc); border-top-color: var(--color-primary-element, #0082c9);
+	animation: notes-spin .8s linear infinite; }
+@keyframes notes-spin { to { transform: rotate(360deg); } }
+
 /* ── Navigation ───────────────────────────────────────────────────────────── */
 #app-navigation .notes-nav-new { padding: 8px; }
 #app-navigation .notes-nav-new button { width: 100%; }

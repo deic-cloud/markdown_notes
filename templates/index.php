@@ -93,3 +93,9 @@
 		</div>
 	</div>
 </div>
+<div id="notes-busy" class="notes-busy" style="display:none">
+	<div class="notes-busy-box">
+		<span class="notes-busy-spin"></span>
+		<span class="notes-busy-msg"></span>
+	</div>
+</div>

@@ -6,6 +6,9 @@
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
 	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: {}, nbExpanded: {}, nbSelected: [], nbAnchor: null };
+	// True while a bulk delete/convert is running, so a second trigger can't race
+	// it (concurrent runs delete each other's notes → 404 storm + survivors).
+	var bulkBusy = false;
 	// Which notebooks are expanded in the tree — persisted across reloads.
 	try { state.nbExpanded = JSON.parse(localStorage.getItem('markdown_notes_nbExpanded') || '{}') || {}; } catch (e) { /* ignore */ }
 	function saveNbExpanded() { try { localStorage.setItem('markdown_notes_nbExpanded', JSON.stringify(state.nbExpanded)); } catch (e) { /* ignore */ } }
@@ -244,23 +247,28 @@
 	// then reclaim now-orphaned attachments and refresh.
 	function deleteSelectedNotebooks() {
 		var paths = state.nbSelected.slice();
-		if (!paths.length) { return; }
+		if (bulkBusy || !paths.length) { return; }
 		var msg = paths.length === 1
 			? t('markdown_notes', 'Delete the notebook "{name}" and all notes inside it?').replace('{name}', paths[0].split('/').pop())
 			: t('markdown_notes', 'Delete {n} notebooks and all notes inside them?').replace('{n}', paths.length);
 		ncConfirm(msg, t('markdown_notes', 'Delete notebook'), function () {
-			paths.reduce(function (chain, pth) {
-				return chain.then(function () { return post('/notebook/delete', p('path', pth)); });
-			}, Promise.resolve()).then(function () {
-				state.nbSelected = [];
-				state.nbAnchor = null;
-				// If the open context was inside a deleted notebook, fall back to all.
-				if (state.mode === 'notebook' && paths.some(function (pth) {
-					return state.notebook === pth || state.notebook.indexOf(pth + '/') === 0;
-				})) { state.mode = 'all'; state.notebook = ''; }
-				gc();
-				return refreshAfterChange();
-			}).catch(showError);
+			if (bulkBusy) { return; }
+			bulkBusy = true;
+			setBusy(true, t('markdown_notes', 'Deleting notebooks…'));
+			// If the open context is inside a notebook we're deleting, fall back to all.
+			var openDeleted = state.mode === 'notebook' && paths.some(function (pth) {
+				return state.notebook === pth || state.notebook.indexOf(pth + '/') === 0;
+			});
+			// Clear the selection up front so a re-trigger can't race this run.
+			state.nbSelected = [];
+			state.nbAnchor = null;
+			updateNbSelectionUI();
+			var params = new URLSearchParams();
+			paths.forEach(function (pth) { params.append('paths[]', pth); });
+			var done = function () { bulkBusy = false; setBusy(false); };
+			post('/notebooks/delete', params).then(function () {
+				if (openDeleted) { state.mode = 'all'; state.notebook = ''; }
+			}).catch(showError).then(function () { return refreshAfterChange(); }).then(done, done);
 		});
 	}
 	function buildNbList(nodes) {
@@ -1173,32 +1181,59 @@
 		bulk.innerHTML = opts;
 		bulk.disabled = !any;
 	}
-	// Run an action over the selected paths sequentially, then refresh.
-	function bulkRun(paths, fn) {
+	// A blocking spinner overlay shown while a bulk op runs — a bulk delete is one
+	// server request that may loop over hundreds of notes, so it can take a few
+	// seconds with no per-item progress to report. The backdrop also blocks input.
+	function setBusy(on, msg) {
+		var b = el('notes-busy');
+		if (!b) { return; }
+		if (on) { b.querySelector('.notes-busy-msg').textContent = msg || t('markdown_notes', 'Working…'); b.style.display = 'flex'; }
+		else { b.style.display = 'none'; }
+	}
+	// Run a bulk operation: clear the selection up front (so a re-trigger has
+	// nothing to act on), show the spinner, then refresh once at the end. The
+	// spinner stays up until the post-op refresh completes.
+	function runBulk(paths, work, msg) {
+		if (bulkBusy || !paths.length) { return; }
+		bulkBusy = true;
+		state.selected = [];
+		updateSelectionUI();
+		var bulk = el('notes-bulk-actions'); if (bulk) { bulk.disabled = true; }
+		setBusy(true, msg);
+		var done = function () { bulkBusy = false; setBusy(false); };
+		work(paths).catch(showError).then(function () { return refreshAfterChange(); }).then(done, done);
+	}
+	// Convert/todo run sequentially client-side (small counts); delete is a single
+	// server call that removes every path in one request (idempotent per note).
+	function seqRun(paths, fn) {
 		return paths.reduce(function (chain, pth) {
 			return chain.then(function () { return fn(pth).catch(showError); });
-		}, Promise.resolve()).then(function () { state.selected = []; return refreshAfterChange(); });
+		}, Promise.resolve());
 	}
 	function onBulkAction() {
 		var bulk = el('notes-bulk-actions');
 		var action = bulk.value;
 		bulk.value = '';
 		var paths = state.selected.slice();
-		if (!action || !paths.length) { return; }
+		if (bulkBusy || !action || !paths.length) { return; }
 		if (action === 'to-todo') {
-			bulkRun(paths, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '1')); });
+			runBulk(paths, function (ps) { return seqRun(ps, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '1')); }); }, t('markdown_notes', 'Updating notes…'));
 		} else if (action === 'to-note') {
-			bulkRun(paths, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '0')); });
+			runBulk(paths, function (ps) { return seqRun(ps, function (pth) { return post('/note/todo', p('path', pth, 'is_todo', '0')); }); }, t('markdown_notes', 'Updating notes…'));
 		} else if (action === 'delete') {
 			ncConfirm(t('markdown_notes', 'Delete the {n} selected notes?').replace('{n}', paths.length), t('markdown_notes', 'Delete'), function () {
-				bulkRun(paths, function (pth) { return post('/note/delete', p('path', pth)); }).then(function () {
-					if (paths.indexOf(state.notePath) >= 0) {
-						state.notePath = null;
-						el('notes-editor-wrap').style.display = 'none';
-						el('notes-editor-empty').style.display = 'block';
-					}
-					gc(); // one sweep after the whole batch
-				});
+				runBulk(paths, function (ps) {
+					var params = new URLSearchParams();
+					ps.forEach(function (pth) { params.append('paths[]', pth); });
+					var hadOpen = ps.indexOf(state.notePath) >= 0;
+					return post('/notes/delete', params).then(function () {
+						if (hadOpen) {
+							state.notePath = null;
+							el('notes-editor-wrap').style.display = 'none';
+							el('notes-editor-empty').style.display = 'block';
+						}
+					});
+				}, t('markdown_notes', 'Deleting notes…'));
 			});
 		}
 	}
