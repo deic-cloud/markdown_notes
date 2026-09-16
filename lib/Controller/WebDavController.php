@@ -18,6 +18,7 @@ use OCP\IUserSession;
 /**
  * A minimal WebDAV target for Joplin sync, mounted at
  *   …/index.php/apps/markdown_notes/joplin/<path>
+ *   …/remote.php/notes/<path>            (remote service, appinfo/notes.php — the old service's address)
  *
  * Joplin's WebDAV driver uses GET/HEAD/PUT/DELETE/MKCOL/MOVE and PROPFIND
  * (Depth 0 to stat, Depth 1 to list), requesting d:getlastmodified and
@@ -237,11 +238,26 @@ class WebDavController extends Controller {
 		return $b === false ? '' : $b;
 	}
 
+	/** The endpoint root as it appears in a URI path: "/joplin" (app route) or "/remote.php/notes" (remote service). */
+	private const ROOTS = ['/remote.php/notes', '/joplin'];
+
+	/** Position just past the endpoint root in $p, or null if none of the roots is present. */
+	private function rootEnd(string $p): ?int {
+		foreach (self::ROOTS as $root) {
+			$pos = strpos($p, $root);
+			if ($pos !== false) {
+				return $pos + strlen($root);
+			}
+		}
+		return null;
+	}
+
 	/** Base href (path part of the endpoint root, with trailing slash). */
 	private function baseHref(): string {
-		$uri = $this->request->getRequestUri(); // e.g. /index.php/apps/markdown_notes/joplin/foo
-		$pos = strpos($uri, '/joplin');
-		$base = $pos !== false ? substr($uri, 0, $pos + strlen('/joplin')) : $uri;
+		$uri  = $this->request->getRequestUri(); // e.g. /index.php/apps/markdown_notes/joplin/foo or /remote.php/notes/foo
+		$uri  = (string)(parse_url($uri, PHP_URL_PATH) ?: $uri);
+		$end  = $this->rootEnd($uri);
+		$base = $end !== null ? substr($uri, 0, $end) : $uri;
 		return rtrim($base, '/') . '/';
 	}
 
@@ -256,9 +272,8 @@ class WebDavController extends Controller {
 		}
 		$p = parse_url($dest, PHP_URL_PATH) ?: $dest;
 		$p = rawurldecode($p);
-		$marker = '/joplin/';
-		$pos = strpos($p, $marker);
-		return $pos !== false ? $this->store->norm(substr($p, $pos + strlen($marker))) : null;
+		$end = $this->rootEnd($p);
+		return $end !== null ? $this->store->norm(ltrim(substr($p, $end), '/')) : null;
 	}
 
 	private function xml(string $s): string {

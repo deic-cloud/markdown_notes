@@ -89,6 +89,12 @@ braces (`C_{p}`) or the `\(…\)` delimiters to be safe.
 
 ## Joplin synchronisation
 
+Joplin's WebDAV target is `https://<host>/remote.php/notes/` (a remote service,
+`appinfo/notes.php`, which accepts HTTP Basic auth with an app/device password
+and dispatches to `Controller/WebDavController`); the same controller also
+answers at `/index.php/apps/markdown_notes/joplin`. The Notes app shows the
+address in its "Joplin sync URL" box.
+
 The on-disk format above is Joplin-compatible by design. A fast sync layer backed
 by an id↔path index is planned (Phase 2); the acceptance target is migrating a
 real 200+ note collection from an existing service through a fresh Joplin install

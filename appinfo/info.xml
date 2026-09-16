@@ -29,4 +29,8 @@
 			<order>10</order>
 		</navigation>
 	</navigations>
+	<remote>
+		<!-- Joplin sync at the old service's address: https://host/remote.php/notes/ -->
+		<notes>appinfo/notes.php</notes>
+	</remote>
 </info>

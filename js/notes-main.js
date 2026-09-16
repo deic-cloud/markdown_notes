@@ -1371,7 +1371,7 @@
 			});
 		});
 		// Joplin sync target URL (full, incl. host) for the user to paste into Joplin.
-		var syncUrl = window.location.origin + (OC.webroot || '') + '/index.php/apps/markdown_notes/joplin';
+		var syncUrl = window.location.origin + (OC.webroot || '') + '/remote.php/notes/';
 		el('notes-sync-url').textContent = syncUrl;
 		el('notes-sync-copy').addEventListener('click', function () {
 			if (navigator.clipboard) {
