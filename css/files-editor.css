@@ -1,0 +1,32 @@
+/* Markdown editor opened from the Files app (src/files-editor.js). */
+.mdn-overlay {
+	position: fixed; inset: 0; z-index: 10000;
+	background: rgba(0, 0, 0, .45);
+	display: flex; align-items: center; justify-content: center;
+}
+.mdn-editor {
+	width: min(1100px, 96vw); height: min(92vh, 1400px);
+	background: var(--color-main-background); color: var(--color-main-text);
+	border-radius: var(--border-radius-large, 10px);
+	box-shadow: 0 0 30px rgba(0, 0, 0, .35);
+	display: flex; flex-direction: column; overflow: hidden;
+}
+.mdn-head {
+	display: flex; align-items: center; gap: 10px;
+	padding: 8px 12px; border-bottom: 1px solid var(--color-border);
+}
+.mdn-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mdn-state { color: var(--color-text-maxcontrast); font-size: .9em; }
+.mdn-msg { margin-left: auto; color: var(--color-text-maxcontrast); font-size: .9em; }
+.mdn-msg.mdn-error { color: var(--color-error-text, #8a0000); }
+.mdn-head button { min-height: 34px; }
+.mdn-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 12px 12px; }
+.mdn-body .EasyMDEContainer { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.mdn-body .EasyMDEContainer .CodeMirror { flex: 1; min-height: 0; height: auto; border-color: var(--color-border); }
+.mdn-body .editor-toolbar { border-color: var(--color-border); }
+.mdn-body .CodeMirror, .mdn-body .editor-toolbar {
+	background: var(--color-main-background); color: var(--color-main-text);
+}
+.mdn-body .CodeMirror-cursor { border-color: var(--color-main-text); }
+.mdn-body .editor-toolbar button { color: var(--color-main-text); }
+.mdn-body .editor-toolbar button.active, .mdn-body .editor-toolbar button:hover { background: var(--color-background-hover); border-color: var(--color-border); }

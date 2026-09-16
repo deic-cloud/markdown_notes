@@ -105,3 +105,17 @@ FontAwesome and MathJax are bundled (no CDNs).
 ## Licence
 
 AGPL-3.0-or-later.
+
+## Files integration: the click action for Markdown files
+
+Clicking a `.md` file in the Files app opens it in this app's EasyMDE editor —
+plain Markdown source with light styling, no preview pane — instead of the
+Text app's rich-text editor (`src/files-editor.js` → `js/files-editor.js`,
+loaded with EasyMDE by `Listener/LoadFilesScriptsListener`). The action is
+registered as the default for `text/markdown` with order −100, so it wins over
+the Viewer/Text action; Text remains available in the file's "…" menu. Reading
+and saving go over WebDAV (the node's own address); saves send `If-Match` with
+the file's ETag, so a concurrent change gives a conflict message instead of a
+silent overwrite. Ctrl/Cmd+S saves, Escape closes (asks if unsaved). Read-only
+files open read-only. Build: `webpack` via the sibling `user_group_admin`
+node_modules, like files_publish (`package.json`, `webpack.config.js`).

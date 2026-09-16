@@ -1,0 +1,31 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OCA\MarkdownNotes\Listener;
+
+use OCA\Files\Event\LoadAdditionalScriptsEvent;
+use OCP\EventDispatcher\Event;
+use OCP\EventDispatcher\IEventListener;
+use OCP\Util;
+
+/**
+ * Files app: load the Markdown editor action (src/files-editor.js → js/files-editor.js)
+ * together with EasyMDE and its styles, so clicking a .md file opens the Notes
+ * app's source editor instead of the Text app's rich-text editor.
+ *
+ * @implements IEventListener<LoadAdditionalScriptsEvent>
+ */
+class LoadFilesScriptsListener implements IEventListener {
+	public function handle(Event $event): void {
+		if (!($event instanceof LoadAdditionalScriptsEvent)) {
+			return;
+		}
+		Util::addStyle('markdown_notes', 'easymde.min');
+		Util::addStyle('markdown_notes', 'font-awesome');
+		Util::addStyle('markdown_notes', 'files-editor');
+		Util::addScript('markdown_notes', 'easymde.min');
+		// After the Files app so its action registry exists.
+		Util::addScript('markdown_notes', 'files-editor', 'files');
+	}
+}
