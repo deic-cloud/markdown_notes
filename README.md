@@ -80,7 +80,8 @@ travel in the file and do not map to Joplin — they are a power-user layer.
 the schemas. A template's variables only (a) get stored as metadata values on
 the new note where one of its `template_tags` already has a field of that name,
 and (b) select which of the tag's existing fields are shown as columns when the
-list is filtered on that tag (a tag no template describes shows all its fields).
+list is filtered on that tag — only those; a tag no template describes shows no
+columns (a schema may have a dozen fields; columns are for overview).
 A variable without a matching field simply fills the note body.
 
 > **Caveat:** if you edit a note's footer `tags:` line directly on disk (outside

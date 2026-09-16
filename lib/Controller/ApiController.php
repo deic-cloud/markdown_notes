@@ -67,17 +67,17 @@ class ApiController extends OCSController {
 				$cols = $this->metaBridge->columnsFor($tag);
 				if ($cols !== null && !empty($cols['keys'])) {
 					$columns = $cols['keys'];
-					// A template naming this tag decides WHICH of the tag's existing
-					// meta_data fields are shown as columns (its variables); a tag no
-					// template describes shows all its fields. Fields are never created
-					// or changed here — the Metadata app owns the schema.
+					// Columns are for overview, so only a template decides them: a
+					// template naming this tag lists (as its variables) WHICH of the
+					// tag's existing meta_data fields to show; a tag no template describes
+					// shows no columns at all (a schema may have a dozen fields — Frederik,
+					// 2026-09-16). Fields are never created or changed here — the
+					// Metadata app owns the schema.
 					$tmap = [];
 					foreach ($this->notesService->templateVariablesForTag($this->uid(), $tag) as $v) {
 						$tmap[$v['name']] = $v['type'];
 					}
-					if ($tmap !== []) {
-						$columns = array_values(array_filter($columns, static fn ($c) => isset($tmap[$c['name']])));
-					}
+					$columns = array_values(array_filter($columns, static fn ($c) => isset($tmap[$c['name']])));
 					// meta_data datetime fields show date-only or date+time in the
 					// list per the template's declared type (date vs datetime).
 					foreach ($columns as &$c) {
@@ -86,10 +86,12 @@ class ApiController extends OCSController {
 						}
 					}
 					unset($c);
-					foreach ($notes as &$n) {
-						$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId']);
+					if ($columns !== []) {
+						foreach ($notes as &$n) {
+							$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId']);
+						}
+						unset($n);
 					}
-					unset($n);
 				}
 			}
 			return ['notes' => $notes, 'columns' => $columns];
