@@ -116,7 +116,8 @@ both apps. Stored in the visible `Templates/` folder; six ship by default.
 - If the optional [`meta_data`](https://github.com/deic-cloud/meta_data) app is
   installed and the active **tag filter** has typed fields defined, the notes
   list expands full-width over the editor as an **editable table** — one column
-  per field. `controlled` fields render as a dropdown (their allowed values),
+  per field the template for that tag names (all fields if no template does).
+  The app never creates or alters fields (decided 2026-09-16). `controlled` fields render as a dropdown (their allowed values),
   others as a text input; edits save immediately. Opening a note gives it the
   full width with a "← List" button back to the table.
 - Without meta_data (or for tags with no fields) there are no columns — the app

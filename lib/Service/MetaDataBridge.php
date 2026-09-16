@@ -83,14 +83,12 @@ class MetaDataBridge {
 	}
 
 	/**
-	 * Ensure a metadata field (key) exists on a tag, returning its id. A template
-	 * variable type `dropdown` maps to meta_data's `controlled` (with allowed
-	 * values); other types map to a plain field. Returns null if meta_data is
-	 * absent or the tag has no system tag yet.
-	 *
-	 * @param string[] $options
+	 * Id of an EXISTING meta_data field of a tag, by name — or null if the tag or
+	 * the field does not exist. This app never creates or changes schema fields:
+	 * the Metadata app is the design authority; a template only says which of a
+	 * tag's fields it fills and shows.
 	 */
-	public function ensureKey(string $tagName, string $name, string $type, array $options): ?int {
+	public function keyId(string $tagName, string $name): ?int {
 		$ts = $this->service();
 		if ($ts === null) {
 			return null;
@@ -100,32 +98,14 @@ class MetaDataBridge {
 			if (!$tagId) {
 				return null;
 			}
-			// Map a template variable type to a meta_data field type. meta_data has
-			// a single temporal type, 'datetime'; both template `date` and
-			// `datetime` use it (the date-only vs date+time display is decided in
-			// the notes list from the template). dropdown -> controlled; else plain.
-			$mdType = $type === 'dropdown' ? 'controlled' : (($type === 'date' || $type === 'datetime') ? 'datetime' : '');
-			$allowed = ($type === 'dropdown' && !empty($options)) ? (string)json_encode(array_values($options)) : '';
 			foreach ($ts->getKeys((int)$tagId) as $k) {
-				if ($k['name'] === $name) {
-					$kid = (int)$k['id'];
-					// Bring an existing field in line with the template's current
-					// definition (e.g. first created as plain text, later given a
-					// dropdown/date type in the template).
-					$needsUpdate = $mdType !== '' && (string)($k['type'] ?? '') !== $mdType;
-					if ($mdType === 'controlled' && (string)($k['allowed_values'] ?? '') !== $allowed) {
-						$needsUpdate = true;
-					}
-					if ($needsUpdate) {
-						$ts->updateKey((int)$tagId, $kid, $name, $mdType, $allowed);
-					}
-					return $kid;
+				if ((string)$k['name'] === $name) {
+					return (int)$k['id'];
 				}
 			}
-			$key = $ts->newKey((int)$tagId, $name, $mdType, $allowed);
-			return $key ? (int)$key['id'] : null;
+			return null;
 		} catch (\Throwable $e) {
-			$this->logger->warning('markdown_notes: meta_data ensureKey failed: ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			$this->logger->warning('markdown_notes: meta_data keyId failed: ' . $e->getMessage(), ['app' => 'markdown_notes']);
 			return null;
 		}
 	}

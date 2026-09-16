@@ -67,12 +67,19 @@ class ApiController extends OCSController {
 				$cols = $this->metaBridge->columnsFor($tag);
 				if ($cols !== null && !empty($cols['keys'])) {
 					$columns = $cols['keys'];
-					// meta_data datetime fields show date-only or date+time in the
-					// list per the template's declared type (date vs datetime).
+					// A template naming this tag decides WHICH of the tag's existing
+					// meta_data fields are shown as columns (its variables); a tag no
+					// template describes shows all its fields. Fields are never created
+					// or changed here — the Metadata app owns the schema.
 					$tmap = [];
 					foreach ($this->notesService->templateVariablesForTag($this->uid(), $tag) as $v) {
 						$tmap[$v['name']] = $v['type'];
 					}
+					if ($tmap !== []) {
+						$columns = array_values(array_filter($columns, static fn ($c) => isset($tmap[$c['name']])));
+					}
+					// meta_data datetime fields show date-only or date+time in the
+					// list per the template's declared type (date vs datetime).
 					foreach ($columns as &$c) {
 						if (($c['type'] ?? '') === 'datetime') {
 							$c['display'] = (($tmap[$c['name']] ?? '') === 'date') ? 'date' : 'datetime';
@@ -105,7 +112,6 @@ class ApiController extends OCSController {
 			$todo = $is_todo === '' ? null : ($is_todo === '1' || $is_todo === 'true');
 			$note = $this->notesService->saveNote($this->uid(), $path, $title, $body, $tags, $todo, $todo_due);
 			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
-			$this->seedTagFields($note['tags']);
 			return $note;
 		});
 	}
@@ -117,10 +123,10 @@ class ApiController extends OCSController {
 			$isTodo = $is_todo === '1' || $is_todo === 'true';
 			$note = $this->notesService->createNote($this->uid(), $notebook, $title, $template, $isTodo, $varsArr);
 			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
-			// Register the template's typed variables as meta_data fields on the
-			// note's tags and store the entered values, so the tag's column appears
-			// in the list view (no-op without meta_data). Done after push so the
-			// system tags exist.
+			// Store the entered template variables as metadata values — only where
+			// one of the note's tags already HAS a field of that name in the Metadata
+			// app. Fields are never created or changed by this app; a variable with
+			// no matching field just fills the note body. No-op without meta_data.
 			if ($template !== '' && !empty($varsArr)) {
 				$info = $this->notesService->templateInfo($this->uid(), $template);
 				foreach ($info['variables'] as $v) {
@@ -128,7 +134,7 @@ class ApiController extends OCSController {
 						continue;
 					}
 					foreach ($note['tags'] as $tagName) {
-						$keyId = $this->metaBridge->ensureKey($tagName, $v['name'], $v['type'], $v['options'] ?? []);
+						$keyId = $this->metaBridge->keyId($tagName, $v['name']);
 						if ($keyId !== null) {
 							$this->metaBridge->setValue($tagName, (int)$note['fileid'], $keyId, (string)$varsArr[$v['name']]);
 						}
@@ -175,24 +181,8 @@ class ApiController extends OCSController {
 		return $this->run(function () use ($path, $tags) {
 			$note = $this->notesService->addTags($this->uid(), $path, $tags);
 			$this->systemTagSync->push($this->uid(), (int)$note['fileid'], $note['tags']);
-			$this->seedTagFields($note['tags']);
 			return $note;
 		});
-	}
-
-	/**
-	 * For each tag, ensure the meta_data fields defined by a matching template
-	 * exist — so applying a tag auto-creates its columns (no-op without meta_data
-	 * or a matching template; idempotent).
-	 *
-	 * @param string[] $tagNames
-	 */
-	private function seedTagFields(array $tagNames): void {
-		foreach (array_unique($tagNames) as $tag) {
-			foreach ($this->notesService->templateVariablesForTag($this->uid(), $tag) as $v) {
-				$this->metaBridge->ensureKey($tag, $v['name'], $v['type'], $v['options'] ?? []);
-			}
-		}
 	}
 
 	#[NoAdminRequired]
