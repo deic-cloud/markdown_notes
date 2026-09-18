@@ -47,9 +47,11 @@ class ApiController extends OCSController {
 				}
 			}
 			usort($vocab, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
+			$tree = $this->notesService->notebookTree($this->uid());
 			return [
 				'notesFolder' => $this->notesService->notesFolderName($this->uid()),
-				'notebooks'   => $this->notesService->notebookTree($this->uid()),
+				'notebooks'   => $tree,
+				'noteCount'   => $this->notesService->totalNoteCount($this->uid(), $tree),
 				'tags'        => array_map(static fn ($n) => ['name' => $n, 'color' => $colors[$n] ?? ''], $names),
 				'vocabulary'  => $vocab,
 			];

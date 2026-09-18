@@ -74,6 +74,24 @@ class NotesService {
 		return $this->walkNotebooks($this->notesFolder($uid), '', true);
 	}
 
+	/**
+	 * Total number of notes: the .md files at the top level of the notes folder
+	 * plus every notebook's (recursive) count — shown after "All notes".
+	 */
+	public function totalNoteCount(string $uid, array $tree): int {
+		$total = 0;
+		foreach ($this->notesFolder($uid)->getDirectoryListing() as $c) {
+			$cname = $c->getName();
+			if (!($c instanceof Folder) && $cname !== '' && $cname[0] !== '.' && substr($cname, -3) === '.md') {
+				$total++;
+			}
+		}
+		foreach ($tree as $nb) {
+			$total += (int)($nb['count'] ?? 0);
+		}
+		return $total;
+	}
+
 	private function walkNotebooks(Folder $folder, string $base, bool $top): array {
 		$out = [];
 		foreach ($folder->getDirectoryListing() as $node) {

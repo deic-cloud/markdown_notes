@@ -173,6 +173,9 @@
 			state.vocab = vocab.map(function (tg) { return tg.name; });
 			renderNotebooks(d.notebooks || []);
 			renderTags(d.tags || []);
+			// Total after "All notes" (top-level notes + every notebook).
+			var allCount = el('notes-all-count');
+			if (allCount) { allCount.textContent = typeof d.noteCount === 'number' ? String(d.noteCount) : ''; }
 		});
 	}
 	function renderNotebooks(tree) {

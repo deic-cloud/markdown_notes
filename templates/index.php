@@ -6,7 +6,7 @@
 		<button id="notes-new-notebook" type="button"><span class="icon-add"></span> <?php p($l->t('New notebook')); ?></button>
 	</div>
 	<ul id="notes-nav-list">
-		<li class="notes-nav-all active" data-all="1"><a href="#"><span class="icon-files-dark"></span> <?php p($l->t('All notes')); ?></a></li>
+		<li class="notes-nav-all active" data-all="1"><a href="#"><span class="icon-files-dark"></span> <?php p($l->t('All notes')); ?><span class="notes-nb-count notes-all-count" id="notes-all-count"></span></a></li>
 	</ul>
 	<div class="notes-nav-section" id="notes-nb-header" title="<?php p($l->t('Drop a notebook here to move it to the top level')); ?>">
 		<span class="notes-nb-header-label"><?php p($l->t('Notebooks')); ?></span>

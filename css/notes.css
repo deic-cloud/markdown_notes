@@ -309,3 +309,7 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 	   and it reclaims a row for the note content. (Math still renders in preview.) */
 	#notes-math-bar { display: none; }
 }
+
+/* Total note count after "All notes" — same grey figure as the per-notebook counts. */
+.notes-nav-all a { display: flex; align-items: center; gap: 6px; }
+.notes-nav-all .notes-all-count { margin-left: auto; }
