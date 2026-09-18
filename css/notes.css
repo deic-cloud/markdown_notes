@@ -310,6 +310,8 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 	#notes-math-bar { display: none; }
 }
 
-/* Total note count after "All notes" — same grey figure as the per-notebook counts. */
-.notes-nav-all a { display: flex; align-items: center; gap: 6px; }
-.notes-nav-all .notes-all-count { margin-left: auto; }
+/* Total note count after "All notes" — same grey figure as the per-notebook
+   counts. The active nav row is bold in NC's navigation styles, so the count
+   resets weight; specific selectors so NC's #app-navigation rules don't win. */
+#notes-nav-list .notes-nav-all a { display: flex; align-items: center; gap: 6px; }
+#notes-nav-list .notes-nav-all a .notes-all-count { margin-left: auto; padding-left: 8px; font-weight: normal; }
