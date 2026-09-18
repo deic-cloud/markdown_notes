@@ -314,4 +314,4 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
    counts. The active nav row is bold in NC's navigation styles, so the count
    resets weight; specific selectors so NC's #app-navigation rules don't win. */
 #notes-nav-list .notes-nav-all a { display: flex; align-items: center; gap: 6px; }
-#notes-nav-list .notes-nav-all a .notes-all-count { margin-left: auto; padding-left: 8px; font-weight: normal; }
+#notes-nav-list .notes-nav-all a .notes-all-count { padding-left: 2px; font-weight: normal; opacity: .8; }
