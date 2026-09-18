@@ -5,7 +5,12 @@
 
 	var OCS = (OC.webroot || '') + '/ocs/v2.php/apps/markdown_notes/api/v1';
 	var mde = null;
-	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: {}, nbExpanded: {}, nbSelected: [], nbAnchor: null };
+	// Column filters in the table view: { <meta key id> | 'status': [hidden values] }.
+	// The Status column starts filtered to what is still to be done — done to-dos
+	// are hidden, notes that aren't to-dos are not affected. Reset whenever a
+	// notebook, a tag or "All notes" is selected.
+	function defaultColFilters() { return { status: ['done'] }; }
+	var state = { mode: 'all', notebook: '', tag: '', notePath: null, notes: [], templates: [], selected: [], notesFolder: 'Notes', viewMode: 0, tagColors: {}, editorTags: [], vocab: [], sortMode: 'updated', sortDir: 'desc', columns: [], metaView: 'list', metaSort: { key: 'title', dir: 'asc' }, colFilters: defaultColFilters(), nbExpanded: {}, nbSelected: [], nbAnchor: null };
 	// True while a bulk delete/convert is running, so a second trigger can't race
 	// it (concurrent runs delete each other's notes → 404 storm + survivors).
 	var bulkBusy = false;
@@ -368,9 +373,9 @@
 	// Context = a notebook (or "all"); a tag is a FILTER layered on top of it
 	// (refines, doesn't replace). Selecting a context clears the filter; clicking
 	// a tag toggles it.
-	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; clearNbSelect(); loadList(); }
-	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; state.colFilters = {}; loadList(); }
-	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; state.colFilters = {}; loadList(); }
+	function selectAll() { state.mode = 'all'; state.notebook = ''; state.tag = ''; state.metaView = 'list'; state.colFilters = defaultColFilters(); clearNbSelect(); loadList(); }
+	function selectNotebook(path) { state.mode = 'notebook'; state.notebook = path; state.tag = ''; state.metaView = 'list'; state.colFilters = defaultColFilters(); loadList(); }
+	function selectTag(tag) { state.tag = (state.tag === tag) ? '' : tag; state.metaView = 'list'; state.colFilters = defaultColFilters(); loadList(); }
 
 	function loadList() {
 		closeColMenu();
@@ -558,12 +563,16 @@
 		for (var keyId in state.colFilters) {
 			var hidden = state.colFilters[keyId];
 			if (hidden && hidden.length) {
-				var v = (n.cols && n.cols[keyId] != null) ? String(n.cols[keyId]) : '';
+				var v = keyId === 'status'
+					? statusKey(n)
+					: ((n.cols && n.cols[keyId] != null) ? String(n.cols[keyId]) : '');
 				if (hidden.indexOf(v) >= 0) { return false; }
 			}
 		}
 		return true;
 	}
+	/** The Status column's value of a row, as the filter sees it. */
+	function statusKey(n) { return !n.is_todo ? 'none' : (n.todo_completed ? 'done' : 'open'); }
 	function metaSorted() {
 		var q = (el('notes-search').value || '').toLowerCase();
 		var arr = state.notes.filter(function (n) { return noteMatches(n, q) && passesColFilters(n); });
@@ -615,7 +624,10 @@
 				var filtered = !!(state.colFilters[c.id] && state.colFilters[c.id].length);
 				return th('meta:' + c.id, c.name, menu, filtered);
 			}).join('') +
-			(hasTodo ? th('due', t('markdown_notes', 'Due')) + th('status', t('markdown_notes', 'Status')) : '') + '</tr>';
+			(hasTodo
+				? th('due', t('markdown_notes', 'Due'))
+				+ th('status', t('markdown_notes', 'Status'), true, !!(state.colFilters.status && state.colFilters.status.length))
+				: '') + '</tr>';
 		table.innerHTML = '<thead>' + head + '</thead>';
 		var tbody = document.createElement('tbody');
 		metaSorted().forEach(function (n) {
@@ -688,7 +700,8 @@
 			h.addEventListener('click', function () {
 				// Controlled columns open a sort+filter menu; others toggle sort.
 				var col = colForKey(h.dataset.sort);
-				if (col && col.type === 'controlled') { openColMenu(col, h); }
+				if (h.dataset.sort === 'status') { openStatusMenu(h); }
+				else if (col && col.type === 'controlled') { openColMenu(col, h); }
 				else { sortByHeader(h.dataset.sort); }
 			});
 		});
@@ -712,8 +725,20 @@
 		if (m && !m.contains(e.target)) { closeColMenu(); }
 	}
 	function openColMenu(col, headerEl) {
+		var rows = (col.options || []).map(function (v) { return { val: v, label: v }; });
+		rows.push({ val: '', label: t('markdown_notes', '(none)') });
+		openFilterMenu('meta:' + col.id, String(col.id), rows, headerEl);
+	}
+	// Same menu for the native Status column: sort, plus what to show.
+	function openStatusMenu(headerEl) {
+		openFilterMenu('status', 'status', [
+			{ val: 'open', label: t('markdown_notes', 'Open to-dos') },
+			{ val: 'done', label: t('markdown_notes', 'Done to-dos') },
+			{ val: 'none', label: t('markdown_notes', 'Notes that are not to-dos') },
+		], headerEl);
+	}
+	function openFilterMenu(key, filterKey, rows, headerEl) {
 		closeColMenu();
-		var key = 'meta:' + col.id;
 		var menu = el2('div', 'notes-col-menu');
 		function sortItem(dir, label) {
 			var it = el2('div', 'notes-col-menu-item' + (state.metaSort.key === key && state.metaSort.dir === dir ? ' active' : ''));
@@ -724,19 +749,17 @@
 		menu.appendChild(sortItem('asc', '↑ ' + t('markdown_notes', 'Sort ascending')));
 		menu.appendChild(sortItem('desc', '↓ ' + t('markdown_notes', 'Sort descending')));
 		menu.appendChild(el2('div', 'notes-col-menu-sep'));
-		var rows = (col.options || []).map(function (v) { return { val: v, label: v }; });
-		rows.push({ val: '', label: t('markdown_notes', '(none)') });
 		rows.forEach(function (r) {
-			var hidden = state.colFilters[col.id] || [];
+			var hidden = state.colFilters[filterKey] || [];
 			var lab = el2('label', 'notes-col-menu-check');
 			var cb = document.createElement('input');
 			cb.type = 'checkbox';
 			cb.checked = hidden.indexOf(r.val) < 0;
 			cb.addEventListener('change', function () {
-				var h = (state.colFilters[col.id] || []).slice();
+				var h = (state.colFilters[filterKey] || []).slice();
 				if (cb.checked) { h = h.filter(function (x) { return x !== r.val; }); }
 				else if (h.indexOf(r.val) < 0) { h.push(r.val); }
-				if (h.length) { state.colFilters[col.id] = h; } else { delete state.colFilters[col.id]; }
+				if (h.length) { state.colFilters[filterKey] = h; } else { delete state.colFilters[filterKey]; }
 				renderMetaTable();
 			});
 			lab.appendChild(cb);
