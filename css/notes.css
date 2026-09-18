@@ -177,6 +177,11 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 .notes-meta-table th, .notes-meta-table td { border-bottom: 1px solid var(--color-border); padding: 6px 8px; text-align: left; vertical-align: middle; }
 .notes-meta-table thead th { position: sticky; top: 0; background: var(--color-main-background); color: var(--color-text-maxcontrast); font-weight: 600; z-index: 1; }
 .notes-meta-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+/* The rightmost header label (Status, or the last column) sits at the table's
+   right edge — give it breathing room. Padding, not a margin on an inline-block:
+   the cell stays a table cell, so its bottom border spans the whole column and
+   the sticky header keeps its background while the list scrolls. */
+.notes-meta-table thead th:last-child { padding-right: 20px; }
 .notes-meta-table th.sortable:hover { color: var(--color-main-text); }
 .notes-meta-table th.sortable.active { color: var(--color-main-text); }
 .notes-meta-table th.sortable.filtered { color: var(--color-primary-element); }
