@@ -766,10 +766,23 @@
 			lab.appendChild(document.createTextNode(' ' + r.label));
 			menu.appendChild(lab);
 		});
+		// Place it under the header, but keep it inside the window: the rightmost
+		// column (Status) would otherwise open half off-screen. Measure hidden,
+		// then reveal, so there is no flash at the wrong position.
 		var rect = headerEl.getBoundingClientRect();
-		menu.style.left = Math.round(rect.left) + 'px';
+		menu.style.visibility = 'hidden';
+		menu.style.left = '0px';
 		menu.style.top = Math.round(rect.bottom) + 'px';
 		document.body.appendChild(menu);
+		var margin = 8;
+		var left = Math.min(Math.round(rect.left), window.innerWidth - menu.offsetWidth - margin);
+		menu.style.left = Math.max(margin, left) + 'px';
+		var below = window.innerHeight - rect.bottom - margin;
+		if (menu.offsetHeight > below && rect.top > below) {
+			// More room above (a header low in the window): open upwards.
+			menu.style.top = Math.max(margin, Math.round(rect.top) - menu.offsetHeight) + 'px';
+		}
+		menu.style.visibility = '';
 		setTimeout(function () { document.addEventListener('click', colMenuOutside, true); }, 0);
 	}
 	function toggleCompleted(path, completed) {
