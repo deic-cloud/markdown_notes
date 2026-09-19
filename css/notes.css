@@ -258,6 +258,15 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 .EasyMDEContainer .editor-preview code,
 .EasyMDEContainer .CodeMirror .cm-comment { background: var(--color-background-dark); }
 .EasyMDEContainer .editor-preview blockquote { border-left-color: var(--color-border); color: var(--color-text-maxcontrast); }
+/* Images and players in the rendered preview scale down to the pane — notes
+   routinely hold screenshots and photos far wider than the editor, which would
+   otherwise run off the window. */
+.EasyMDEContainer .editor-preview img,
+.EasyMDEContainer .editor-preview-side img,
+.EasyMDEContainer .editor-preview video,
+.EasyMDEContainer .editor-preview-side video,
+.EasyMDEContainer .editor-preview audio,
+.EasyMDEContainer .editor-preview-side audio { max-width: 100%; height: auto; }
 /* NC globally sets list-style:none; restore real bullets/numbers in the rendered
    markdown preview. */
 .EasyMDEContainer .editor-preview ul,

@@ -55,9 +55,11 @@ sync that the web lacks.
   onto another to nest it, or onto the **Notebooks** header (or **All notes**) to
   move it back to the top level.
 * **Templates** with variable substitution (`%date%`, `%me%`, `%place%`) and an
-  optional `tags:` line that auto-tags new notes. Six templates ship by default
-  (todo, diary, lab log, lab note, recipe, science note); add your own to
-  `Templates/`.
+  optional `tags:` line that auto-tags new notes. Four research-oriented
+  templates ship by default (to-do, lab log, lab note, science note); add your
+  own to `Templates/`. Personal-life templates (recipe, diary) were dropped from
+  the bundle 2026-09-19 — this is a research service, and a user's existing
+  copies in their own `Templates/` folder are untouched.
 * Insert images by picking an existing file from Nextcloud or uploading into
   `attachments/`.
 
