@@ -655,7 +655,13 @@ class JoplinSyncService {
 			try {
 				$folder = $this->notesService->getNotesFolder($uid);
 				if ($folder->nodeExists($row['rel_path'])) {
+					// What this note/notebook referenced, so its attachments go too
+					// (unless another note still uses them).
+					$mine = $type === JoplinItem::TYPE_NOTE
+						? $this->notesService->attachmentsOfNote($uid, (string)$row['rel_path'])
+						: $this->notesService->attachmentsOfTree($uid, (string)$row['rel_path']);
 					$folder->get($row['rel_path'])->delete();
+					$this->notesService->cleanupAttachments($uid, $mine);
 				}
 			} catch (\Throwable $e) {
 				// ignore

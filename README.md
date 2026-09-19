@@ -82,6 +82,21 @@ sync that the web lacks.
 
 ## Tags & metadata
 
+### Attachments are cleaned up when a note is deleted
+
+Deleting a note or a notebook deletes the attachments it referenced, unless some
+remaining note still references them (`NotesService::cleanupAttachments`, called
+from the web UI, the bulk endpoints and the Joplin delete path). It is scoped on
+purpose: only the deleted item's own attachments can ever be removed, so a gap in
+the link scanner cannot reach the rest of the collection. Two further guards:
+nothing is deleted when a reference anywhere cannot be resolved, and a file the
+index has no row for is never deleted, because without its identity a `:/id`
+link may well mean it.
+
+The full sweep (`gcOrphanAttachments`, OCS `POST /gc`) is **no longer automatic**.
+It remains for the one case a scoped cleanup cannot see: an image unlinked by
+*editing* a note rather than deleting it.
+
 Tags live in the note footer (authoritative) and are mirrored to Nextcloud's core
 **system tags** — the same tags shown in the Files sidebar:
 

@@ -969,15 +969,11 @@
 				state.notePath = null;
 				el('notes-editor-wrap').style.display = 'none';
 				el('notes-editor-empty').style.display = 'block';
-				gc();
 				return refreshAfterChange();
 			}).catch(showError);
 		});
 	}
 	function refreshAfterChange() { return Promise.all([loadList(), loadTree()]); }
-	// Reclaim attachment files no note references any more. Fire-and-forget, run
-	// ONCE per delete operation (never per note) so bulk deletes stay fast.
-	function gc() { return post('/gc').catch(function () {}); }
 
 	// ── Create ────────────────────────────────────────────────────────────────
 	function newNote() { createFromTemplate(false); }

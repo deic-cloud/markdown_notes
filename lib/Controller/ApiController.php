@@ -220,9 +220,11 @@ class ApiController extends OCSController {
 			$uid = $this->uid();
 			$deleted = 0;
 			$missing = 0;
+			$candidates = [];
 			foreach ($paths as $path) {
 				try {
-					$this->notesService->deleteNote($uid, (string)$path);
+					// Collect first, clean once at the end: one scan for the batch.
+					$candidates = array_merge($candidates, $this->notesService->deleteNote($uid, (string)$path, false));
 					$deleted++;
 				} catch (NotFoundException $e) {
 					$missing++;
@@ -230,12 +232,18 @@ class ApiController extends OCSController {
 					$missing++;
 				}
 			}
-			$reclaimed = $deleted > 0 ? $this->notesService->gcOrphanAttachments($uid) : 0;
+			$reclaimed = $deleted > 0 ? $this->notesService->cleanupAttachments($uid, $candidates) : 0;
 			return ['deleted' => $deleted, 'missing' => $missing, 'reclaimed' => $reclaimed];
 		});
 	}
 
-	/** Reclaim attachment files no note references any more (called once after a delete op). */
+	/**
+	 * Full sweep for attachments no note references any more. No longer called
+	 * automatically — deleting a note or notebook now cleans up exactly what it
+	 * referenced (NotesService::cleanupAttachments). Kept for the one case a
+	 * scoped cleanup cannot see: an image unlinked by *editing* a note rather
+	 * than deleting it.
+	 */
 	#[NoAdminRequired]
 	public function gc(): DataResponse {
 		return $this->run(fn () => ['deleted' => $this->notesService->gcOrphanAttachments($this->uid())]);
@@ -267,9 +275,10 @@ class ApiController extends OCSController {
 			$uid = $this->uid();
 			$deleted = 0;
 			$missing = 0;
+			$candidates = [];
 			foreach ($paths as $path) {
 				try {
-					$this->notesService->deleteNotebook($uid, (string)$path);
+					$candidates = array_merge($candidates, $this->notesService->deleteNotebook($uid, (string)$path, false));
 					$deleted++;
 				} catch (NotFoundException $e) {
 					$missing++;
@@ -277,7 +286,7 @@ class ApiController extends OCSController {
 					$missing++;
 				}
 			}
-			$reclaimed = $deleted > 0 ? $this->notesService->gcOrphanAttachments($uid) : 0;
+			$reclaimed = $deleted > 0 ? $this->notesService->cleanupAttachments($uid, $candidates) : 0;
 			return ['deleted' => $deleted, 'missing' => $missing, 'reclaimed' => $reclaimed];
 		});
 	}

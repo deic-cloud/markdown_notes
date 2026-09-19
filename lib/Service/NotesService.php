@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\MarkdownNotes\Service;
 
+use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
 use OCP\Files\Node;
@@ -160,13 +161,20 @@ class NotesService {
 		return ['path' => $path, 'name' => $name];
 	}
 
-	public function deleteNotebook(string $uid, string $rel): void {
+	public function deleteNotebook(string $uid, string $rel, bool $cleanup = true): array {
 		$rel = trim($rel, '/');
 		if ($rel === '' || in_array($rel, self::SPECIAL, true) || str_ends_with($rel, '/attachments')) {
 			throw new NotesException('Refusing to delete this folder.');
 		}
+		// Attachments its notes referenced elsewhere (its own attachments/ folder
+		// goes with it, being inside the notebook).
+		$mine = $this->attachmentsOfTree($uid, $rel);
 		$this->relNode($uid, $rel)->delete();
 		$this->deindexTree($uid, $rel);
+		if ($cleanup) {
+			$this->cleanupAttachments($uid, $mine);
+		}
+		return $mine;
 	}
 
 	public function rename(string $uid, string $rel, string $targetRel, bool $bump = true): array {
@@ -399,9 +407,99 @@ class NotesService {
 		return $this->getNote($uid, $rel);
 	}
 
-	public function deleteNote(string $uid, string $rel): void {
+	/**
+	 * @param bool $cleanup delete the attachments this note referenced, unless
+	 *                      another note still does. Pass false when deleting many
+	 *                      notes and call cleanupAttachments() once at the end.
+	 */
+	public function deleteNote(string $uid, string $rel, bool $cleanup = true): array {
+		$mine = $this->attachmentsOfNote($uid, $rel);
 		$this->relNode($uid, $rel)->delete();
 		$this->deindexNote($uid, $rel);
+		if ($cleanup) {
+			$this->cleanupAttachments($uid, $mine);
+		}
+		return $mine;
+	}
+
+	/** Attachments referenced by one note (rel paths); [] if it cannot be read. */
+	public function attachmentsOfNote(string $uid, string $rel): array {
+		try {
+			$node = $this->relNode($uid, $rel);
+			if (!($node instanceof File)) {
+				return [];
+			}
+			$ref = [];
+			$unresolved = 0;
+			$this->scanNoteLinks($uid, trim($rel, '/'), NoteFormat::parse($this->readContent($node))['body'], $ref, $unresolved);
+			return array_keys($ref);
+		} catch (\Throwable $e) {
+			return [];
+		}
+	}
+
+	/** Attachments referenced by every note under a notebook (rel paths). */
+	public function attachmentsOfTree(string $uid, string $rel): array {
+		try {
+			$node = $this->relNode($uid, $rel);
+			if (!($node instanceof Folder)) {
+				return [];
+			}
+			$ref = [];
+			$unresolved = 0;
+			$this->collectReferencedAttachments($uid, $node, trim($rel, '/'), $ref, $unresolved);
+			return array_keys($ref);
+		} catch (\Throwable $e) {
+			return [];
+		}
+	}
+
+	/**
+	 * Delete attachments a just-deleted note or notebook referenced, unless some
+	 * remaining note still references them. Scoped on purpose: only these
+	 * candidates can ever be removed, so a gap in the link scanner can never
+	 * reach the rest of the collection — which is exactly what a full sweep did
+	 * once. Nothing is deleted at all when a reference cannot be resolved, or
+	 * for a file the index does not know.
+	 *
+	 * @param string[] $candidates rel paths collected BEFORE the deletion
+	 * @return int files deleted
+	 */
+	public function cleanupAttachments(string $uid, array $candidates): int {
+		$candidates = array_values(array_unique(array_filter($candidates)));
+		if ($candidates === []) {
+			return 0;
+		}
+		$root = $this->notesFolder($uid);
+		$referenced = [];
+		$unresolved = 0;
+		$this->collectReferencedAttachments($uid, $root, '', $referenced, $unresolved);
+		if ($unresolved > 0) {
+			$this->logger->warning('markdown_notes: keeping the deleted note(s) attachments for ' . $uid . ' — '
+				. $unresolved . ' link(s) elsewhere point at a resource id this instance cannot resolve',
+				['app' => 'markdown_notes']);
+			return 0;
+		}
+		$deleted = 0;
+		foreach ($candidates as $rel) {
+			if (isset($referenced[$rel]) || !$root->nodeExists($rel)) {
+				continue;
+			}
+			if ($this->index->resourceJidByRel($uid, $rel) === null) {
+				continue; // identity unknown — never delete
+			}
+			try {
+				$root->get($rel)->delete();
+				$jid = $this->index->resourceJidByRel($uid, $rel);
+				if ($jid !== null) {
+					$this->index->delete($uid, $jid);
+				}
+				$deleted++;
+			} catch (\Throwable $e) {
+				$this->logger->warning('markdown_notes: could not delete attachment ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			}
+		}
+		return $deleted;
 	}
 
 	// ── Joplin index maintenance ──────────────────────────────────────────────
@@ -756,47 +854,54 @@ class NotesService {
 				continue;
 			}
 			$rel = $base === '' ? $name : $base . '/' . $name;
-			$noteDir = $this->dirOf($rel);
-			$body = NoteFormat::parse($this->readContent($node))['body'];
-			// Every way a note can point at a file: a markdown link/image, and an
-			// HTML src=/href= — web clippings are full of `<img src=":/<id>">`, and
-			// missing those made their attachments look unreferenced.
-			$targets = [];
-			if (preg_match_all('/!?\[[^\]]*\]\(([^)\s]+)/', $body, $m)) {
-				$targets = $m[1];
-			}
-			if (preg_match_all('/(?:src|href)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s">]+))/i', $body, $hm, PREG_SET_ORDER)) {
-				foreach ($hm as $h) {
-					foreach ([1, 2, 3] as $g) {
-						if (($h[$g] ?? '') !== '') {
-							$targets[] = $h[$g];
-							break;
-						}
+			$this->scanNoteLinks($uid, $rel, NoteFormat::parse($this->readContent($node))['body'], $ref, $unresolved);
+		}
+	}
+
+	/**
+	 * Add every attachment a note's body points at to $ref, counting references
+	 * we cannot resolve. Every way a note can point at a file: a markdown
+	 * link/image, and an HTML src=/href= — web clippings are full of
+	 * `<img src=":/<id>">`, and missing those made their attachments look
+	 * unreferenced.
+	 */
+	private function scanNoteLinks(string $uid, string $noteRel, string $body, array &$ref, int &$unresolved): void {
+		$noteDir = $this->dirOf($noteRel);
+		$targets = [];
+		if (preg_match_all('/!?\[[^\]]*\]\(([^)\s]+)/', $body, $m)) {
+			$targets = $m[1];
+		}
+		if (preg_match_all('/(?:src|href)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s">]+))/i', $body, $hm, PREG_SET_ORDER)) {
+			foreach ($hm as $h) {
+				foreach ([1, 2, 3] as $g) {
+					if (($h[$g] ?? '') !== '') {
+						$targets[] = $h[$g];
+						break;
 					}
 				}
 			}
-			foreach ($targets as $link) {
-				if ($link === '' || $link[0] === '/' || $link[0] === '#') {
-					continue;
+		}
+		foreach ($targets as $link) {
+			if ($link === '' || $link[0] === '/' || $link[0] === '#') {
+				continue;
+			}
+			if (strpos($link, ':/') === 0) {
+				// Joplin resource id → the file the index says it is.
+				$rid = substr($link, 2);
+				$rr = preg_match('/^[0-9a-f]{32}$/', $rid) ? $this->index->row($uid, $rid) : null;
+				if ($rr !== null && (int)$rr['type'] === JoplinItem::TYPE_RESOURCE && (string)$rr['rel_path'] !== '') {
+					$ref[(string)$rr['rel_path']] = true;
+				} else {
+					$unresolved++;
 				}
-				if (strpos($link, ':/') === 0) {
-					// Joplin resource id → the file the index says it is.
-					$rid = substr($link, 2);
-					$rr = preg_match('/^[0-9a-f]{32}$/', $rid) ? $this->index->row($uid, $rid) : null;
-					if ($rr !== null && (int)$rr['type'] === JoplinItem::TYPE_RESOURCE && (string)$rr['rel_path'] !== '') {
-						$ref[(string)$rr['rel_path']] = true;
-					} else {
-						$unresolved++;
-					}
-					continue;
-				}
-				if (preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
-					continue; // http:, mailto:, data: …
-				}
-				$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
-				if ($t !== null && preg_match('#(^|/)attachments/#', $t)) {
-					$ref[$t] = true;
-				}
+				continue;
+			}
+			if (preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
+				continue; // http:, mailto:, data: …
+			}
+			$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
+			if ($t !== null && preg_match('#(^|/)attachments/#', $t)) {
+				$ref[$t] = true;
 			}
 		}
 	}
