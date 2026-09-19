@@ -127,6 +127,9 @@ class NotesService {
 				continue;
 			}
 			if ($c instanceof Folder) {
+				if (self::isSpecialDir($cname, false)) {
+					continue; // a notebook's own attachments/ folder is not a notebook
+				}
 				$children[] = $this->notebookNode($c, $rel . '/' . $cname);
 			} elseif (substr($cname, -3) === '.md') {
 				$direct++;
@@ -651,14 +654,31 @@ class NotesService {
 	// the caller (a single /gc request after a delete op) runs it once, never
 	// per-note, so a bulk delete stays O(notes) not O(notes^2).
 
-	/** @return int attachment files deleted */
+	/**
+	 * @return int attachment files deleted
+	 *
+	 * Fails safe, twice over. A note may reference a resource by an un-converted
+	 * Joplin `:/<id>` link, which only the index can resolve to a file; an
+	 * imported collection can consist almost entirely of such links. So: if any
+	 * link cannot be resolved, we do not know what is orphaned and delete
+	 * nothing; and a file with no index row is never deleted either, because
+	 * without its identity we cannot tell whether some `:/id` means it.
+	 */
 	public function gcOrphanAttachments(string $uid): int {
 		$root = $this->notesFolder($uid);
 		$referenced = [];
-		$this->collectReferencedAttachments($uid, $root, '', $referenced);
+		$unresolved = 0;
+		$this->collectReferencedAttachments($uid, $root, '', $referenced, $unresolved);
+		if ($unresolved > 0) {
+			$this->logger->warning('markdown_notes: gc skipped for ' . $uid . ' — ' . $unresolved
+				. ' note link(s) point at a resource id this instance cannot resolve, so what is orphaned cannot be decided',
+				['app' => 'markdown_notes']);
+			return 0;
+		}
 		$dirs = [];
 		$this->attachmentDirs($root, '', $dirs);
 		$deleted = 0;
+		$unknown = 0;
 		foreach ($dirs as $dirRel => $folder) {
 			foreach ($folder->getDirectoryListing() as $f) {
 				$name = $f->getName();
@@ -667,6 +687,12 @@ class NotesService {
 				}
 				$rel = $dirRel . '/' . $name;
 				if (isset($referenced[$rel])) {
+					continue;
+				}
+				if ($this->index->resourceJidByRel($uid, $rel) === null) {
+					// Not in the index: we do not know this file's resource id, so a
+					// `:/id` link could well mean it. Keep it.
+					$unknown++;
 					continue;
 				}
 				try {
@@ -680,6 +706,10 @@ class NotesService {
 					$this->logger->warning('markdown_notes gc attachment ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
 				}
 			}
+		}
+		if ($unknown > 0) {
+			$this->logger->info('markdown_notes: gc kept ' . $unknown . ' unreferenced attachment(s) of ' . $uid
+				. ' that have no index row (identity unknown — never delete those)', ['app' => 'markdown_notes']);
 		}
 		return $deleted;
 	}
@@ -709,7 +739,7 @@ class NotesService {
 	}
 
 	/** Collect every attachments/ path still referenced by a note (relative links + Joplin :/id). */
-	private function collectReferencedAttachments(string $uid, Folder $dir, string $base, array &$ref): void {
+	private function collectReferencedAttachments(string $uid, Folder $dir, string $base, array &$ref, int &$unresolved = 0): void {
 		foreach ($dir->getDirectoryListing() as $node) {
 			$name = $node->getName();
 			if ($name === '' || $name[0] === '.') {
@@ -719,7 +749,7 @@ class NotesService {
 				if (self::isSpecialDir($name, $base === '')) {
 					continue;
 				}
-				$this->collectReferencedAttachments($uid, $node, $base === '' ? $name : $base . '/' . $name, $ref);
+				$this->collectReferencedAttachments($uid, $node, $base === '' ? $name : $base . '/' . $name, $ref, $unresolved);
 				continue;
 			}
 			if (substr($name, -3) !== '.md') {
@@ -745,6 +775,8 @@ class NotesService {
 					$rr = $this->index->row($uid, $rid);
 					if ($rr !== null && (int)$rr['type'] === JoplinItem::TYPE_RESOURCE && (string)$rr['rel_path'] !== '') {
 						$ref[(string)$rr['rel_path']] = true;
+					} else {
+						$unresolved++;
 					}
 				}
 			}
