@@ -55,11 +55,14 @@ sync that the web lacks.
   onto another to nest it, or onto the **Notebooks** header (or **All notes**) to
   move it back to the top level.
 * **Templates** with variable substitution (`%date%`, `%me%`, `%place%`) and an
-  optional `tags:` line that auto-tags new notes. Four research-oriented
-  templates ship by default (to-do, lab log, lab note, science note); add your
-  own to `Templates/`. Personal-life templates (recipe, diary) were dropped from
-  the bundle 2026-09-19 — this is a research service, and a user's existing
-  copies in their own `Templates/` folder are untouched.
+  optional `tags:` line that auto-tags new notes. Three templates ship by
+  default — **to-do**, **lab notebook** and **science note**, the terms most
+  researchers already use; add your own to `Templates/`. The lab-notebook
+  template fills the seeded `lab_notebook` schema (`project`, `date`), so those
+  two become the overview columns when the list is filtered on that tag.
+  Dropped from the bundle 2026-09-19: recipe and diary (personal-life templates
+  on a research service) and lab log / lab note (merged into lab notebook).
+  A user's existing copies in their own `Templates/` folder are untouched.
 * Insert images by picking an existing file from Nextcloud or uploading into
   `attachments/`.
 
