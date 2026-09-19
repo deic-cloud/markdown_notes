@@ -566,13 +566,23 @@ class JoplinSyncService {
 	 */
 	private function bodyToJoplin(string $uid, string $noteRel, string $body): string {
 		$folder = $this->notesService->getNotesFolder($uid);
-		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel, $folder) {
-			$att = $this->resolveAttachment($noteRel, rawurldecode($m[2]));
+		$toId = function (string $link) use ($uid, $noteRel, $folder): ?string {
+			$att = $this->resolveAttachment($noteRel, rawurldecode($link));
 			if ($att === null || !$folder->nodeExists($att)) {
-				return $m[0];
+				return null;
 			}
-			$id = $this->index->getOrCreateResourceJid($uid, $att, $folder->get($att)->getMTime() * 1000);
-			return $m[1] . ':/' . $id . ($m[3] ?? '') . $m[4];
+			return ':/' . $this->index->getOrCreateResourceJid($uid, $att, $folder->get($att)->getMTime() * 1000);
+		};
+		$body = (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function ($m) use ($toId) {
+			$id = $toId($m[2]);
+			return $id === null ? $m[0] : $m[1] . $id . ($m[3] ?? '') . $m[4];
+		}, $body);
+		// Same for HTML attributes: web clippings embed their images as
+		// `<img src="…">`, so they need converting too or they reach Joplin as
+		// links to files it cannot see.
+		return (string)preg_replace_callback('/(\b(?:src|href)\s*=\s*)("|\')([^"\'>]+)(\2)/i', function ($m) use ($toId) {
+			$id = $toId($m[3]);
+			return $id === null ? $m[0] : $m[1] . $m[2] . $id . $m[4];
 		}, $body);
 	}
 
@@ -584,17 +594,27 @@ class JoplinSyncService {
 	 * attachments and every member can see them.
 	 */
 	private function bodyFromJoplin(string $uid, string $noteRel, string $body, bool $relocate = false): string {
-		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()(:\/[0-9a-f]{32})(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel, $relocate) {
-			$id = substr($m[2], 2);
+		$toLink = function (string $idRef) use ($uid, $noteRel, $relocate): ?string {
+			$id = substr($idRef, 2);
 			$rel = $this->resourceFileRel($uid, $id);
 			if ($rel === null) {
-				return $m[0]; // resource not materialised yet — leave :/id (preview still resolves it)
+				return null; // not materialised (yet) — leave :/id, the preview resolves it
 			}
 			if ($relocate) {
 				$rel = $this->relocateResource($uid, $id, $rel, $noteRel);
 			}
-			$link = implode('/', array_map('rawurlencode', explode('/', $this->notesService->relativeLink($noteRel, $rel))));
-			return $m[1] . $link . ($m[3] ?? '') . $m[4];
+			return implode('/', array_map('rawurlencode', explode('/', $this->notesService->relativeLink($noteRel, $rel))));
+		};
+		$body = (string)preg_replace_callback('/(!?\[[^\]]*\]\()(:\/[0-9a-f]{32})(\s+"[^"]*")?(\))/', function ($m) use ($toLink) {
+			$link = $toLink($m[2]);
+			return $link === null ? $m[0] : $m[1] . $link . ($m[3] ?? '') . $m[4];
+		}, $body);
+		// Web clippings embed their images as `<img src=":/<id>">`; convert those
+		// to portable relative paths as well, or they stay unresolvable outside
+		// Joplin (and invisible to anything that scans markdown links only).
+		return (string)preg_replace_callback('/(\b(?:src|href)\s*=\s*)("|\')(:\/[0-9a-f]{32})(\2)/i', function ($m) use ($toLink) {
+			$link = $toLink($m[3]);
+			return $link === null ? $m[0] : $m[1] . $m[2] . $link . $m[4];
 		}, $body);
 	}
 

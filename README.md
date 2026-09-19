@@ -43,7 +43,12 @@ sync that the web lacks.
   their own notes root, where the file is not, so only the member who inserted an
   image could see it. It also lets a notebook be published, deposited or handed
   over as one folder. Inbound Joplin resources are moved into the referencing
-  note's notebook when the note arrives.
+  note's notebook when the note arrives. Resource links are converted in both
+  directions for **markdown links and HTML `src=`/`href=` attributes** — web
+  clippings embed their images as `<img src=":/<id>">`, and handling only
+  markdown left those unresolvable outside Joplin (and invisible to anything
+  scanning markdown links, which is what once made the garbage collector think
+  they were orphaned).
 * There are **no hidden per-item dotfiles** — everything you see in Files is what
   the app sees.
 
