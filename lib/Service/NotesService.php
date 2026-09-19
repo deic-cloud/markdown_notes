@@ -758,26 +758,44 @@ class NotesService {
 			$rel = $base === '' ? $name : $base . '/' . $name;
 			$noteDir = $this->dirOf($rel);
 			$body = NoteFormat::parse($this->readContent($node))['body'];
+			// Every way a note can point at a file: a markdown link/image, and an
+			// HTML src=/href= — web clippings are full of `<img src=":/<id>">`, and
+			// missing those made their attachments look unreferenced.
+			$targets = [];
 			if (preg_match_all('/!?\[[^\]]*\]\(([^)\s]+)/', $body, $m)) {
-				foreach ($m[1] as $link) {
-					if ($link === '' || $link[0] === '/' || $link[0] === '#' || strpos($link, ':/') === 0 || preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
-						continue;
-					}
-					$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
-					if ($t !== null && preg_match('#(^|/)attachments/#', $t)) {
-						$ref[$t] = true;
+				$targets = $m[1];
+			}
+			if (preg_match_all('/(?:src|href)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s">]+))/i', $body, $hm, PREG_SET_ORDER)) {
+				foreach ($hm as $h) {
+					foreach ([1, 2, 3] as $g) {
+						if (($h[$g] ?? '') !== '') {
+							$targets[] = $h[$g];
+							break;
+						}
 					}
 				}
 			}
-			// Un-converted Joplin :/id links → resolve to the resource's file path.
-			if (preg_match_all('/\(:\/([0-9a-f]{32})/', $body, $mm)) {
-				foreach ($mm[1] as $rid) {
-					$rr = $this->index->row($uid, $rid);
+			foreach ($targets as $link) {
+				if ($link === '' || $link[0] === '/' || $link[0] === '#') {
+					continue;
+				}
+				if (strpos($link, ':/') === 0) {
+					// Joplin resource id → the file the index says it is.
+					$rid = substr($link, 2);
+					$rr = preg_match('/^[0-9a-f]{32}$/', $rid) ? $this->index->row($uid, $rid) : null;
 					if ($rr !== null && (int)$rr['type'] === JoplinItem::TYPE_RESOURCE && (string)$rr['rel_path'] !== '') {
 						$ref[(string)$rr['rel_path']] = true;
 					} else {
 						$unresolved++;
 					}
+					continue;
+				}
+				if (preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
+					continue; // http:, mailto:, data: …
+				}
+				$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
+				if ($t !== null && preg_match('#(^|/)attachments/#', $t)) {
+					$ref[$t] = true;
 				}
 			}
 		}
