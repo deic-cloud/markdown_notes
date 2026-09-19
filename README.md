@@ -33,8 +33,17 @@ sync that the web lacks.
   The footer is the **single source of truth for a note's tags**. Unknown Joplin
   keys (e.g. `latitude`, `markup_language`) are preserved untouched, so round-trips
   through this app are lossless.
-* **`Templates/` and `attachments/`** are ordinary visible folders, excluded from
+* **`Templates/`** is an ordinary visible folder at the notes root, excluded from
   the notebook tree.
+* **`attachments/`** — one per notebook, at the root of each top-level notebook
+  (and one at the notes root for notes lying directly there); excluded from the
+  notebook tree at any level. Per notebook rather than one per user so a notebook
+  is **self-contained**: with a single root-level folder, a link like
+  `../attachments/x.png` resolves — for every member of a *shared* notebook — to
+  their own notes root, where the file is not, so only the member who inserted an
+  image could see it. It also lets a notebook be published, deposited or handed
+  over as one folder. Inbound Joplin resources are moved into the referencing
+  note's notebook when the note arrives.
 * There are **no hidden per-item dotfiles** — everything you see in Files is what
   the app sees.
 

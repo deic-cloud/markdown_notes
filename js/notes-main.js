@@ -1076,14 +1076,11 @@
 		fd.append('file', file, (file.name || 'image').replace(/[\\/]/g, '_'));
 		registerResource(fd);
 	}
-	// '../' for each folder the open note is deep, to reach the notes root.
-	function notePrefix() {
-		var depth = (state.notePath || '').split('/').length - 1;
-		return depth > 0 ? new Array(depth + 1).join('../') : '';
-	}
-	// POST the image; the backend stores it under attachments/ and returns its
-	// filename. Insert a PORTABLE relative link (`![alt](../attachments/name)`).
+	// POST the image with the open note's path; the backend stores it in that
+	// notebook's attachments folder and returns the PORTABLE relative link to
+	// insert (`![alt](../attachments/name)`).
 	function registerResource(formData) {
+		formData.append('note', state.notePath || '');
 		el('notes-status').textContent = t('markdown_notes', 'Uploading…');
 		fetch(RES_URL, { method: 'POST', headers: { requesttoken: OC.requestToken }, body: formData })
 			.then(function (r) {
@@ -1092,8 +1089,8 @@
 			})
 			.then(function (j) {
 				el('notes-status').textContent = '';
-				if (mde && j && j.name) {
-					var link = notePrefix() + 'attachments/' + encodeURIComponent(j.name);
+				if (mde && j && (j.link || j.name)) {
+					var link = j.link || ('attachments/' + encodeURIComponent(j.name));
 					mde.codemirror.replaceSelection('![' + (j.alt || 'image') + '](' + link + ')');
 					mde.codemirror.focus();
 				}

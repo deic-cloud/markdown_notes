@@ -102,7 +102,7 @@ class NotesService {
 			if ($name === '' || $name[0] === '.') {
 				continue;
 			}
-			if ($top && in_array($name, self::SPECIAL, true)) {
+			if (self::isSpecialDir($name, $top)) {
 				continue;
 			}
 			$out[] = $this->notebookNode($node, $base === '' ? $name : $base . '/' . $name);
@@ -159,7 +159,7 @@ class NotesService {
 
 	public function deleteNotebook(string $uid, string $rel): void {
 		$rel = trim($rel, '/');
-		if ($rel === '' || in_array($rel, self::SPECIAL, true)) {
+		if ($rel === '' || in_array($rel, self::SPECIAL, true) || str_ends_with($rel, '/attachments')) {
 			throw new NotesException('Refusing to delete this folder.');
 		}
 		$this->relNode($uid, $rel)->delete();
@@ -206,7 +206,7 @@ class NotesService {
 				continue;
 			}
 			if ($file instanceof Folder) {
-				if ($recursive && !($top && in_array($name, self::SPECIAL, true))) {
+				if ($recursive && !(self::isSpecialDir($name, $top))) {
 					$this->collectNotes($file, $base === '' ? $name : $base . '/' . $name, true, $tag, $out, false);
 				}
 				continue;
@@ -606,6 +606,33 @@ class NotesService {
 		return implode('/', $out);
 	}
 
+	/**
+	 * Where a note's attachments live: an `attachments/` folder at the root of the
+	 * TOP-LEVEL notebook holding the note, or the notes root for notes lying
+	 * directly in it. Per notebook rather than one folder per user, so a notebook
+	 * is self-contained: a single root-level `attachments/` resolves, for every
+	 * member of a SHARED notebook, to their own notes root — where the file is
+	 * not — and only the member who inserted an image could see it. It also lets
+	 * a notebook be published, deposited or handed over as one folder.
+	 */
+	public function attachDirFor(string $noteRel): string {
+		$dir = trim($this->dirOf($noteRel), '/');
+		return $dir === '' ? 'attachments' : explode('/', $dir)[0] . '/attachments';
+	}
+
+	/** Portable relative link from a note to another path in the notes tree. */
+	public function relativeLink(string $noteRel, string $targetRel): string {
+		return $this->makeRelative($this->dirOf($noteRel), $targetRel);
+	}
+
+	/**
+	 * Folders that are not notebooks: `attachments` at ANY level (every notebook
+	 * may have its own), `Templates` only at the top (they are per user).
+	 */
+	public static function isSpecialDir(string $name, bool $top): bool {
+		return $name === 'attachments' || ($top && $name === 'Templates');
+	}
+
 	private function makeRelative(string $fromDir, string $target): string {
 		$from = $fromDir === '' ? [] : explode('/', $fromDir);
 		$to = $target === '' ? [] : explode('/', $target);
@@ -627,32 +654,58 @@ class NotesService {
 	/** @return int attachment files deleted */
 	public function gcOrphanAttachments(string $uid): int {
 		$root = $this->notesFolder($uid);
-		if (!$root->nodeExists('attachments') || !($root->get('attachments') instanceof Folder)) {
-			return 0;
-		}
 		$referenced = [];
 		$this->collectReferencedAttachments($uid, $root, '', $referenced);
+		$dirs = [];
+		$this->attachmentDirs($root, '', $dirs);
 		$deleted = 0;
-		foreach ($root->get('attachments')->getDirectoryListing() as $f) {
-			$name = $f->getName();
-			if ($f instanceof Folder || $name === '' || $name[0] === '.') {
-				continue;
-			}
-			if (isset($referenced['attachments/' . $name])) {
-				continue;
-			}
-			try {
-				$f->delete();
-				$jid = $this->index->resourceJidByRel($uid, 'attachments/' . $name);
-				if ($jid !== null) {
-					$this->index->delete($uid, $jid);
+		foreach ($dirs as $dirRel => $folder) {
+			foreach ($folder->getDirectoryListing() as $f) {
+				$name = $f->getName();
+				if ($f instanceof Folder || $name === '' || $name[0] === '.') {
+					continue;
 				}
-				$deleted++;
-			} catch (\Throwable $e) {
-				$this->logger->warning('markdown_notes gc attachment ' . $name . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+				$rel = $dirRel . '/' . $name;
+				if (isset($referenced[$rel])) {
+					continue;
+				}
+				try {
+					$f->delete();
+					$jid = $this->index->resourceJidByRel($uid, $rel);
+					if ($jid !== null) {
+						$this->index->delete($uid, $jid);
+					}
+					$deleted++;
+				} catch (\Throwable $e) {
+					$this->logger->warning('markdown_notes gc attachment ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+				}
 			}
 		}
 		return $deleted;
+	}
+
+	/**
+	 * Every `attachments/` folder in the tree, as rel path => Folder (the notes
+	 * root's own, plus one per notebook that has one).
+	 *
+	 * @param array<string, Folder> $out
+	 */
+	private function attachmentDirs(Folder $dir, string $base, array &$out): void {
+		foreach ($dir->getDirectoryListing() as $node) {
+			if (!($node instanceof Folder)) {
+				continue;
+			}
+			$name = $node->getName();
+			if ($name === '' || $name[0] === '.' || ($base === '' && $name === 'Templates')) {
+				continue;
+			}
+			$rel = $base === '' ? $name : $base . '/' . $name;
+			if ($name === 'attachments') {
+				$out[$rel] = $node;
+				continue;
+			}
+			$this->attachmentDirs($node, $rel, $out);
+		}
 	}
 
 	/** Collect every attachments/ path still referenced by a note (relative links + Joplin :/id). */
@@ -663,7 +716,7 @@ class NotesService {
 				continue;
 			}
 			if ($node instanceof Folder) {
-				if ($base === '' && in_array($name, self::SPECIAL, true)) {
+				if (self::isSpecialDir($name, $base === '')) {
 					continue;
 				}
 				$this->collectReferencedAttachments($uid, $node, $base === '' ? $name : $base . '/' . $name, $ref);
@@ -681,7 +734,7 @@ class NotesService {
 						continue;
 					}
 					$t = $this->normalizeRel(($noteDir === '' ? '' : $noteDir . '/') . rawurldecode($link));
-					if ($t !== null && strpos($t, 'attachments/') === 0) {
+					if ($t !== null && preg_match('#(^|/)attachments/#', $t)) {
 						$ref[$t] = true;
 					}
 				}
@@ -829,7 +882,7 @@ class NotesService {
 				continue;
 			}
 			if ($node instanceof Folder) {
-				if ($top && in_array($name, self::SPECIAL, true)) {
+				if (self::isSpecialDir($name, $top)) {
 					continue;
 				}
 				$this->collectTags($node, $tags, false);

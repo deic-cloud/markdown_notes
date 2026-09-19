@@ -83,7 +83,7 @@ class JoplinSyncService {
 		// (Unresolved ids stay `:/id` and still render in our preview, converging
 		// on the next reindex/edit.)
 		$noteRel = ($parentRel === '' ? '' : $parentRel . '/') . $this->safeName($title !== '' ? $title : $jid) . '.md';
-		$body = $this->bodyFromJoplin($uid, $noteRel, $body);
+		$body = $this->bodyFromJoplin($uid, $noteRel, $body, true);
 
 		// Build our footer, preserving Joplin's id/times/todo and any tags the
 		// link items will (re)assert. Unmanaged Joplin keys are dropped here but
@@ -374,16 +374,18 @@ class JoplinSyncService {
 	}
 
 	/**
-	 * Register bytes as an image attachment: stores a REAL file under attachments/
-	 * and indexes it as a resource. The web UI then inserts a portable relative
-	 * link (`![alt](attachments/name)`); the Joplin layer maps that to `:/<id>`
-	 * on the fly. Returns the stored filename + suggested alt text.
+	 * Register bytes as an image attachment: stores a REAL file in the attachments
+	 * folder of the note's notebook (NotesService::attachDirFor) and indexes it as
+	 * a resource. Returns the stored filename, a suggested alt text and the
+	 * portable relative link to insert; the Joplin layer maps that to `:/<id>`
+	 * on the fly.
 	 *
-	 * @return array{name:string, alt:string}
+	 * @return array{name:string, alt:string, link:string}
 	 */
-	public function createResource(string $uid, string $bytes, string $filename, string $mime): array {
+	public function createResource(string $uid, string $bytes, string $filename, string $mime, string $noteRel = ''): array {
 		$folder = $this->notesService->getNotesFolder($uid);
-		$att = $this->ensureDir($folder, self::ATTACH_DIR);
+		$attRel = $this->notesService->attachDirFor($noteRel);
+		$att = $this->ensureDir($folder, $attRel);
 		$filename = $this->safeName(trim($filename) !== '' ? $filename : 'image');
 		if (strpos($filename, '.') === false) {
 			$ext = $this->extForMime($mime);
@@ -393,10 +395,11 @@ class JoplinSyncService {
 		}
 		$name = $this->uniqueChild($att, $filename);
 		$att->newFile($name, $bytes);
-		$rel = self::ATTACH_DIR . '/' . $name;
+		$rel = $attRel . '/' . $name;
 		$this->index->getOrCreateResourceJid($uid, $rel, (int)round(microtime(true) * 1000));
 		$alt = (string)preg_replace('/\.[^.]+$/', '', $name);
-		return ['name' => $name, 'alt' => $alt !== '' ? $alt : $name];
+		$link = implode('/', array_map('rawurlencode', explode('/', $this->notesService->relativeLink($noteRel, $rel))));
+		return ['name' => $name, 'alt' => $alt !== '' ? $alt : $name, 'link' => $link];
 	}
 
 	/** Materialise an incoming Joplin resource (type-4) as a real attachments/ file. */
@@ -523,10 +526,6 @@ class JoplinSyncService {
 
 	// ── image-link mapping (relative file path <-> Joplin :/id) ───────────────
 
-	/** '../' repeated for the note's folder depth, to reach the notes root. */
-	private function relPrefixForNote(string $noteRel): string {
-		return str_repeat('../', substr_count(trim($noteRel, '/'), '/'));
-	}
 
 	/** Collapse a path (resolving '.'/'..'); null if it escapes the root. */
 	private function normalizePath(string $path): ?string {
@@ -547,7 +546,7 @@ class JoplinSyncService {
 		return implode('/', $out);
 	}
 
-	/** Resolve a note-relative link to a notes-root attachments path, or null. */
+	/** Resolve a note-relative link to an attachments path (any notebook's), or null. */
 	private function resolveAttachment(string $noteRel, string $link): ?string {
 		if ($link === '' || str_starts_with($link, ':/') || str_starts_with($link, '/') || str_starts_with($link, '#')
 			|| preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
@@ -556,7 +555,7 @@ class JoplinSyncService {
 		$dir = trim((string)dirname($noteRel), '/');
 		$combined = ($dir === '' || $dir === '.') ? $link : $dir . '/' . $link;
 		$norm = $this->normalizePath($combined);
-		return ($norm !== null && str_starts_with($norm, self::ATTACH_DIR . '/')) ? $norm : null;
+		return ($norm !== null && preg_match('#(^|/)' . self::ATTACH_DIR . '/#', $norm)) ? $norm : null;
 	}
 
 	/**
@@ -577,16 +576,53 @@ class JoplinSyncService {
 		}, $body);
 	}
 
-	/** Rewrite Joplin `:/<id>` resource links (image `![]` or file `[]`) to portable relative paths. */
-	private function bodyFromJoplin(string $uid, string $noteRel, string $body): string {
-		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()(:\/[0-9a-f]{32})(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel) {
-			$rel = $this->resourceFileRel($uid, substr($m[2], 2));
+	/**
+	 * Rewrite Joplin `:/<id>` resource links (image `![]` or file `[]`) to portable
+	 * relative paths. With $relocate (the inbound Joplin path), a resource still
+	 * sitting in the notes-root attachments folder is first moved into the
+	 * notebook of the note that references it, so a shared notebook keeps its own
+	 * attachments and every member can see them.
+	 */
+	private function bodyFromJoplin(string $uid, string $noteRel, string $body, bool $relocate = false): string {
+		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()(:\/[0-9a-f]{32})(\s+"[^"]*")?(\))/', function ($m) use ($uid, $noteRel, $relocate) {
+			$id = substr($m[2], 2);
+			$rel = $this->resourceFileRel($uid, $id);
 			if ($rel === null) {
 				return $m[0]; // resource not materialised yet — leave :/id (preview still resolves it)
 			}
-			$link = $this->relPrefixForNote($noteRel) . implode('/', array_map('rawurlencode', explode('/', $rel)));
+			if ($relocate) {
+				$rel = $this->relocateResource($uid, $id, $rel, $noteRel);
+			}
+			$link = implode('/', array_map('rawurlencode', explode('/', $this->notesService->relativeLink($noteRel, $rel))));
 			return $m[1] . $link . ($m[3] ?? '') . $m[4];
 		}, $body);
+	}
+
+	/**
+	 * Move a resource from the notes-root attachments folder into the attachments
+	 * folder of the referencing note's notebook. Returns the (possibly new) rel
+	 * path; on any failure the old one, so the link stays valid.
+	 */
+	private function relocateResource(string $uid, string $jid, string $rel, string $noteRel): string {
+		$want = $this->notesService->attachDirFor($noteRel);
+		if ($want === self::ATTACH_DIR || dirname($rel) !== self::ATTACH_DIR) {
+			return $rel; // already in a notebook's folder, or the note lives at the root
+		}
+		try {
+			$folder = $this->notesService->getNotesFolder($uid);
+			if (!$folder->nodeExists($rel)) {
+				return $rel;
+			}
+			$att = $this->ensureDir($folder, $want);
+			$name = $this->uniqueChild($att, basename($rel));
+			$folder->get($rel)->move($att->getPath() . '/' . $name);
+			$newRel = $want . '/' . $name;
+			$this->index->repath($uid, $rel, $newRel);
+			return $newRel;
+		} catch (\Throwable $e) {
+			$this->logger->warning('joplin relocate resource ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			return $rel;
+		}
 	}
 
 	public function deleteItem(string $uid, string $jid): void {
@@ -685,17 +721,27 @@ class JoplinSyncService {
 		return $counts;
 	}
 
-	/** Index every file under attachments/ as a resource (stable jids by rel_path). */
+	/** Index every file in every attachments/ folder as a resource (stable jids by rel_path). */
 	private function reindexResources(string $uid, Folder $root, array &$seen): void {
-		if ($root->nodeExists(self::ATTACH_DIR) && $root->get(self::ATTACH_DIR) instanceof Folder) {
-			$att = $root->get(self::ATTACH_DIR);
-			foreach ($att->getDirectoryListing() as $node) {
-				$name = $node->getName();
-				if ($node instanceof Folder || $name === '' || $name[0] === '.') {
-					continue;
-				}
-				$seen[$this->index->getOrCreateResourceJid($uid, self::ATTACH_DIR . '/' . $name, $node->getMTime() * 1000)] = true;
+		$this->reindexResourcesIn($uid, $root, '', $seen);
+	}
+
+	private function reindexResourcesIn(string $uid, Folder $dir, string $base, array &$seen): void {
+		foreach ($dir->getDirectoryListing() as $node) {
+			$name = $node->getName();
+			if ($name === '' || $name[0] === '.') {
+				continue;
 			}
+			if (!($node instanceof Folder)) {
+				if ($base !== '' && basename($base) === self::ATTACH_DIR) {
+					$seen[$this->index->getOrCreateResourceJid($uid, $base . '/' . $name, $node->getMTime() * 1000)] = true;
+				}
+				continue;
+			}
+			if ($base === '' && $name === 'Templates') {
+				continue;
+			}
+			$this->reindexResourcesIn($uid, $node, $base === '' ? $name : $base . '/' . $name, $seen);
 		}
 	}
 
@@ -707,8 +753,8 @@ class JoplinSyncService {
 			}
 			$rel = $base === '' ? $name : $base . '/' . $name;
 			if ($node instanceof Folder) {
-				// Templates/ and attachments/ are not notebooks — skip them.
-				if ($top && in_array($name, NotesService::SPECIAL, true)) {
+				// Templates/ (top level) and every attachments/ are not notebooks.
+				if (NotesService::isSpecialDir($name, (bool)$top)) {
 					continue;
 				}
 				$seen[$this->index->getOrCreateFolderJid($uid, $rel, $node->getMTime() * 1000)] = true;

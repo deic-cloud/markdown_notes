@@ -61,7 +61,7 @@ class ResourceController extends Controller {
 	 * `![alt](:/<id>)` into the note body.
 	 */
 	#[NoAdminRequired]
-	public function create(string $path = ''): JSONResponse {
+	public function create(string $path = '', string $note = ''): JSONResponse {
 		$uid = $this->userSession->getUser()?->getUID() ?? '';
 		if ($uid === '') {
 			return new JSONResponse(['message' => 'Not authenticated'], Http::STATUS_UNAUTHORIZED);
@@ -94,7 +94,9 @@ class ResourceController extends Controller {
 			return new JSONResponse(['message' => 'No file or path provided'], Http::STATUS_BAD_REQUEST);
 		}
 
-		$res = $this->sync->createResource($uid, $bytes, $filename, $mime);
+		// $note = the open note's path, so the file lands in that notebook's
+		// attachments folder and the returned link is relative to the note.
+		$res = $this->sync->createResource($uid, $bytes, $filename, $mime, $note);
 		return new JSONResponse($res);
 	}
 }
