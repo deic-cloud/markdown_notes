@@ -289,11 +289,24 @@
 			if (state.nbSelected.indexOf(n.path) >= 0) { row.classList.add('nb-selected'); }
 			var hasKids = n.children && n.children.length;
 			var expanded = !!state.nbExpanded[n.path];
+			// The share control is offered on TOP-LEVEL notebooks only: a notebook's
+			// attachments live at its own root, so sharing a sub-notebook would share
+			// notes whose images sit outside the share.
+			var topLevel = n.path.indexOf('/') < 0;
 			row.innerHTML =
 				'<span class="notes-nb-toggle">' + (hasKids ? (expanded ? '▾' : '▸') : '') + '</span>' +
 				'<span class="icon-folder"></span>' +
 				'<span class="notes-nb-name">' + esc(n.name) + '</span>' +
-				'<span class="notes-nb-count">' + (n.count || 0) + '</span>';
+				'<span class="notes-nb-count">' + (n.count || 0) + '</span>' +
+				(topLevel ? '<button type="button" class="notes-nb-share" title="'
+					+ esc(t('markdown_notes', 'Share this notebook')) + '">' + SHARE_SVG + '</button>' : '');
+			var shareBtn = row.querySelector('.notes-nb-share');
+			if (shareBtn) {
+				shareBtn.addEventListener('click', function (e) {
+					e.stopPropagation();
+					openShareDialog(n);
+				});
+			}
 			// Plain click both selects the notebook (one-item selection) and opens it
 			// in the list. Cmd/Ctrl-click adds/removes a notebook from that selection;
 			// Shift-click extends a range from it — neither re-opens, so you can build
@@ -1095,6 +1108,131 @@
 				}
 			})
 			.catch(showError);
+	}
+
+	// ── Sharing a notebook ────────────────────────────────────────────────────
+	// Straight onto Nextcloud's own sharing API — a notebook is a folder. The app
+	// adds one thing on top (server side, ShareCreatedListener): the notebook is
+	// placed in the recipient's own Notes folder, so it shows up in their Notes
+	// app rather than loose at the top of their files.
+	var SHARE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">'
+		+ '<path fill="currentColor" d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 0 0 2.92 2.92 2.92 2.92 0 0 0 2.92-2.92A2.92 2.92 0 0 0 18 16.08Z"/></svg>';
+	var SHARE_API = (OC.webroot || '') + '/ocs/v2.php/apps/files_sharing/api/v1';
+	function ocsShare(method, path, params) {
+		var url = SHARE_API + path + (path.indexOf('?') < 0 ? '?' : '&') + 'format=json';
+		var opts = { method: method, headers: { 'OCS-APIREQUEST': 'true', requesttoken: OC.requestToken } };
+		if (params) {
+			opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+			opts.body = params.toString();
+		}
+		return fetch(url, opts).then(function (r) { return r.json(); }).then(function (j) {
+			var meta = (j.ocs && j.ocs.meta) || {};
+			if (meta.status !== 'ok') { throw new Error(meta.message || ('HTTP ' + meta.statuscode)); }
+			return (j.ocs && j.ocs.data) || [];
+		});
+	}
+	// Nextcloud permission bits: 1 read, 2 update, 4 create, 8 delete, 16 reshare.
+	var PERM_READ = 1, PERM_EDIT = 15;
+	function openShareDialog(nb) {
+		var folder = '/' + state.notesFolder + '/' + nb.path;
+		var back = el2('div', 'notes-modal-backdrop');
+		var modal = el2('div', 'notes-modal notes-share');
+		var h = el2('h3', ''); h.textContent = t('markdown_notes', 'Share “{name}”').replace('{name}', nb.name);
+		var sub = el2('p', 'notes-history-sub');
+		sub.textContent = t('markdown_notes', 'Those you share it with get the notebook in their own Notes app, and can open its notes in Joplin.');
+		var list = el2('div', 'notes-share-list');
+		list.textContent = t('markdown_notes', 'Loading…');
+		var addRow = el2('div', 'notes-share-add');
+		var input = document.createElement('input');
+		input.type = 'text'; input.className = 'notes-modal-input';
+		input.placeholder = t('markdown_notes', 'Name of a user or group…');
+		var results = el2('div', 'notes-share-results');
+		addRow.appendChild(input); addRow.appendChild(results);
+		var actions = el2('div', 'notes-modal-actions');
+		var closeB = el2('button', ''); closeB.type = 'button'; closeB.textContent = t('markdown_notes', 'Close');
+		actions.appendChild(closeB);
+		modal.appendChild(h); modal.appendChild(sub); modal.appendChild(list); modal.appendChild(addRow); modal.appendChild(actions);
+		back.appendChild(modal); document.body.appendChild(back);
+		function close() { if (back.parentNode) { document.body.removeChild(back); } document.removeEventListener('keydown', onKey); }
+		function onKey(e) { if (e.key === 'Escape') { close(); } }
+		closeB.addEventListener('click', close);
+		back.addEventListener('click', function (e) { if (e.target === back) { close(); } });
+		document.addEventListener('keydown', onKey);
+
+		function refresh() {
+			list.textContent = t('markdown_notes', 'Loading…');
+			ocsShare('GET', '/shares?path=' + encodeURIComponent(folder) + '&reshares=false').then(function (shares) {
+				var mine = shares.filter(function (sh) { return sh.share_type === 0 || sh.share_type === 1; });
+				list.innerHTML = '';
+				if (!mine.length) {
+					var none = el2('p', 'notes-share-none');
+					none.textContent = t('markdown_notes', 'Not shared with anyone yet.');
+					list.appendChild(none);
+					return;
+				}
+				mine.forEach(function (sh) {
+					var row = el2('div', 'notes-share-row');
+					var who = el2('span', 'notes-share-who');
+					who.textContent = (sh.share_with_displayname || sh.share_with)
+						+ (sh.share_type === 1 ? ' (' + t('markdown_notes', 'group') + ')' : '');
+					var lab = el2('label', 'notes-share-edit');
+					var cb = document.createElement('input');
+					cb.type = 'checkbox';
+					cb.checked = (sh.permissions & 2) === 2;
+					cb.addEventListener('change', function () {
+						var pr = new URLSearchParams();
+						pr.append('permissions', String(cb.checked ? PERM_EDIT : PERM_READ));
+						ocsShare('PUT', '/shares/' + sh.id, pr).catch(function (e) { cb.checked = !cb.checked; showError(e); });
+					});
+					lab.appendChild(cb);
+					lab.appendChild(document.createTextNode(' ' + t('markdown_notes', 'can edit')));
+					var rm = el2('button', 'notes-share-remove');
+					rm.type = 'button'; rm.textContent = t('markdown_notes', 'Remove');
+					rm.addEventListener('click', function () {
+						ocsShare('DELETE', '/shares/' + sh.id).then(refresh).catch(showError);
+					});
+					row.appendChild(who); row.appendChild(lab); row.appendChild(rm);
+					list.appendChild(row);
+				});
+			}).catch(function (e) {
+				list.textContent = t('markdown_notes', 'Could not read the shares') + ': ' + e.message;
+			});
+		}
+		refresh();
+
+		var searchTimer = null;
+		input.addEventListener('input', function () {
+			clearTimeout(searchTimer);
+			var term = input.value.trim();
+			if (term.length < 2) { results.innerHTML = ''; return; }
+			searchTimer = setTimeout(function () {
+				ocsShare('GET', '/sharees?search=' + encodeURIComponent(term) + '&itemType=folder&perPage=10&lookup=false')
+					.then(function (d) {
+						var cands = []
+							.concat((d.exact && d.exact.users) || [], (d.users) || [])
+							.map(function (u) { return { label: u.label, id: u.value.shareWith, type: 0 }; })
+							.concat([].concat((d.exact && d.exact.groups) || [], (d.groups) || [])
+								.map(function (g) { return { label: g.label + ' (' + t('markdown_notes', 'group') + ')', id: g.value.shareWith, type: 1 }; }));
+						results.innerHTML = '';
+						cands.slice(0, 10).forEach(function (c) {
+							var b = el2('button', 'notes-share-candidate');
+							b.type = 'button'; b.textContent = c.label;
+							b.addEventListener('click', function () {
+								var pr = new URLSearchParams();
+								pr.append('path', folder);
+								pr.append('shareType', String(c.type));
+								pr.append('shareWith', c.id);
+								pr.append('permissions', String(PERM_EDIT));
+								ocsShare('POST', '/shares', pr).then(function () {
+									input.value = ''; results.innerHTML = '';
+									refresh();
+								}).catch(showError);
+							});
+							results.appendChild(b);
+						});
+					}).catch(function () { results.innerHTML = ''; });
+			}, 250);
+		});
 	}
 
 	// ── History (past versions of the open note) ──────────────────────────────
