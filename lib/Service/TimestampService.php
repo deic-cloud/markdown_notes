@@ -57,6 +57,63 @@ class TimestampService {
 	}
 
 	/**
+	 * The authorities whose tokens this server accepts, each with the window it
+	 * is accepted for. Chain validation says a token came from someone our CA
+	 * vouched for; this says it came from the authority we actually run, during
+	 * a period we actually trust.
+	 *
+	 * That distinction is the whole revocation story for timestamps. This CA
+	 * publishes no revocation list, deliberately: a list is signed by the CA, so
+	 * it is worthless in the one case that matters, a stolen CA key. Removing an
+	 * entry here is the same gesture as deleting a user's stored certificate, and
+	 * it does not depend on the compromised key. The dates are what keep it
+	 * humane: retire an authority without them and every genuine token it ever
+	 * issued dies with it; with them, only the window after a breach is cut out.
+	 *
+	 * Empty list = accept any token that chains to the CA, which is where a
+	 * server starts and is a reasonable place to stay until there is something
+	 * to distrust.
+	 *
+	 * @return list<array{fingerprint: string, from: string, until: string, note: string}>
+	 */
+	public function pins(): array {
+		$raw = trim($this->appConfig->getValueString('markdown_notes', 'tsa_pins', ''));
+		if ($raw === '') {
+			return [];
+		}
+		$decoded = json_decode($raw, true);
+		if (!is_array($decoded)) {
+			$this->logger->error('markdown_notes: tsa_pins is not valid JSON; no token will be accepted',
+				['app' => 'markdown_notes']);
+			return [['fingerprint' => 'unreadable', 'from' => '', 'until' => '', 'note' => 'unreadable']];
+		}
+		$out = [];
+		foreach ($decoded as $entry) {
+			if (!is_array($entry) || !isset($entry['fingerprint'])) {
+				continue;
+			}
+			$out[] = [
+				'fingerprint' => self::normalizeFingerprint((string)$entry['fingerprint']),
+				'from'        => trim((string)($entry['from'] ?? '')),
+				'until'       => trim((string)($entry['until'] ?? '')),
+				'note'        => trim((string)($entry['note'] ?? '')),
+			];
+		}
+		return $out;
+	}
+
+	/** @param list<array{fingerprint: string, from: string, until: string, note: string}> $pins */
+	public function setPins(array $pins): void {
+		$this->appConfig->setValueString('markdown_notes', 'tsa_pins',
+			json_encode(array_values($pins), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '[]');
+	}
+
+	/** Colons, case and whitespace differ between tools; the digest does not. */
+	public static function normalizeFingerprint(string $fp): string {
+		return strtoupper((string)preg_replace('/[^0-9A-Fa-f]/', '', $fp));
+	}
+
+	/**
 	 * CA used to verify tokens. Defaults to the CA this cluster already issues
 	 * its certificates from — every node sets `my_ca_certificate`.
 	 */
@@ -304,7 +361,14 @@ class TimestampService {
 		file_put_contents($manFile, $content);
 		$argv = ['openssl', 'ts', '-verify', '-data', $manFile, '-in', $respFile, '-CAfile', $ca];
 		$verify = $this->run($argv);
+		$stamped = $record['time'] !== '' ? strtotime((string)$record['time']) : false;
 		if ($this->verified($verify)) {
+			$pin = $this->pinVerdict($this->signerCertificates($respFile), $stamped === false ? time() : $stamped);
+			if ($pin['state'] !== '') {
+				$record['verified'] = $pin['state'];
+				$record['detail'] = $pin['detail'];
+				return $record;
+			}
 			$record['verified'] = 'ok';
 			return $record;
 		}
@@ -316,11 +380,16 @@ class TimestampService {
 		// expired. A token forged with a stolen key could claim a time inside the
 		// certificate's life either way, so this concedes nothing that was not
 		// already conceded by having no revocation list.
-		$stamped = $record['time'] !== '' ? strtotime((string)$record['time']) : false;
 		$expired = stripos($verify['err'] . $verify['out'], 'certificate has expired') !== false;
 		if ($expired && $stamped !== false) {
 			$again = $this->run(array_merge($argv, ['-attime', (string)$stamped]));
 			if ($this->verified($again)) {
+				$pin = $this->pinVerdict($this->signerCertificates($respFile), $stamped);
+				if ($pin['state'] !== '') {
+					$record['verified'] = $pin['state'];
+					$record['detail'] = $pin['detail'];
+					return $record;
+				}
 				$record['verified'] = 'ok-expired';
 				$record['detail'] = 'The token verifies as of the time it carries. '
 					. 'The certificate of the authority that issued it has expired since.';
@@ -330,6 +399,76 @@ class TimestampService {
 		$record['verified'] = 'failed';
 		$record['detail'] = $this->reason($verify['err'] . "\n" . $verify['out']);
 		return $record;
+	}
+
+	/**
+	 * The certificates carried inside a token, as fingerprint => subject. We ask
+	 * for them with `-cert` when stamping precisely so this is possible offline.
+	 *
+	 * @return array<string, string>
+	 */
+	public function signerCertificates(string $responseFile): array {
+		$tokenFile = $this->temp->getTemporaryFile('.tk');
+		$this->run(['openssl', 'ts', '-reply', '-in', $responseFile, '-token_out', '-out', $tokenFile]);
+		if (!is_file($tokenFile) || filesize($tokenFile) === 0) {
+			return [];
+		}
+		$pem = $this->run(['openssl', 'pkcs7', '-inform', 'DER', '-in', $tokenFile, '-print_certs']);
+		$out = [];
+		if (!preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $pem['out'], $m)) {
+			return $out;
+		}
+		foreach ($m[0] as $certPem) {
+			$fp = openssl_x509_fingerprint($certPem, 'sha256');
+			if ($fp === false) {
+				continue;
+			}
+			$info = openssl_x509_parse($certPem);
+			$subject = '';
+			if (is_array($info) && isset($info['subject']) && is_array($info['subject'])) {
+				$parts = [];
+				foreach ($info['subject'] as $k => $v) {
+					$parts[] = $k . '=' . (is_array($v) ? implode('+', $v) : $v);
+				}
+				$subject = implode(', ', $parts);
+			}
+			$out[self::normalizeFingerprint($fp)] = $subject;
+		}
+		return $out;
+	}
+
+	/**
+	 * Is this token from an authority we accept, at the time it carries?
+	 *
+	 * @param array<string, string> $certificates fingerprint => subject
+	 * @return array{state: string, detail: string}
+	 */
+	private function pinVerdict(array $certificates, int $stampedAt): array {
+		$pins = $this->pins();
+		if ($pins === []) {
+			return ['state' => '', 'detail' => ''];
+		}
+		$known = null;
+		foreach ($pins as $pin) {
+			if ($pin['fingerprint'] === '' || !isset($certificates[$pin['fingerprint']])) {
+				continue;
+			}
+			$from  = $pin['from'] !== '' ? strtotime($pin['from'] . ' 00:00:00 UTC') : false;
+			$until = $pin['until'] !== '' ? strtotime($pin['until'] . ' 23:59:59 UTC') : false;
+			if (($from === false || $stampedAt >= $from) && ($until === false || $stampedAt <= $until)) {
+				return ['state' => '', 'detail' => ''];
+			}
+			// Right authority, wrong time: keep looking, another entry may cover it.
+			$known = $pin;
+		}
+		if ($known !== null) {
+			return ['state' => 'outside-window', 'detail' => 'This authority is accepted'
+				. ($known['from'] !== '' ? ' from ' . $known['from'] : '')
+				. ($known['until'] !== '' ? ' until ' . $known['until'] : '')
+				. ', and this token is dated outside that.'];
+		}
+		return ['state' => 'not-pinned', 'detail' => 'The token is signed by an authority this server does '
+			. 'not accept. Its certificate: ' . (implode('; ', $certificates) ?: 'none found') . '.'];
 	}
 
 	/** @param array{out: string, err: string, code: int} $result */
