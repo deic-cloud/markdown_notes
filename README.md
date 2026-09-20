@@ -80,6 +80,27 @@ sync that the web lacks.
 * Insert images by picking an existing file from Nextcloud or uploading into
   `attachments/`.
 
+## Sharing a notebook
+
+The left bar's notebook rows carry a share control (top-level notebooks only —
+a notebook's attachments live at its own root, so sharing a sub-notebook would
+share notes whose images sit outside the share). It opens a small dialog over
+Nextcloud's own sharing API: who the notebook is shared with, a *can edit*
+toggle, *Remove*, and a search to add a user or a group. No endpoint of ours is
+involved.
+
+One thing happens server-side (`Listener/ShareCreatedListener`): a shared
+**notebook** is placed in the recipient's own notes folder rather than left at
+the top of their files, where the Notes app does not look — and where our DAV
+conceal gate would hide it from their sync client anyway, so they could only
+move it in the browser. The name is suffixed if it would collide. A
+`BackgroundJob/ReindexJob` is queued for the recipient, because their Joplin
+sees only what their index holds. Group shares are placed for each member.
+Everything is guarded: a failure is logged and never breaks the share itself.
+
+Not covered: cross-silo (federated) shares, where the recipient's mount is
+created on another node — the listener only runs where the share is made.
+
 ## History of a note
 
 The editor's **History** button lists the note's earlier versions with their
