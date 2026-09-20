@@ -1466,6 +1466,9 @@
 		if (s.verified === 'ok') {
 			state1.className += ' notes-stamp-ok';
 			state1.textContent = t('markdown_notes', 'Token verified');
+		} else if (s.verified === 'ok-expired') {
+			state1.className += ' notes-stamp-ok';
+			state1.textContent = t('markdown_notes', 'Token verified as of its own time');
 		} else if (s.verified === 'failed') {
 			state1.className += ' notes-stamp-bad';
 			state1.textContent = t('markdown_notes', 'Token does NOT verify');

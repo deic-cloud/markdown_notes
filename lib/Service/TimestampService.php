@@ -302,14 +302,39 @@ class TimestampService {
 		}
 		$manFile = $this->temp->getTemporaryFile('.manifest');
 		file_put_contents($manFile, $content);
-		$verify = $this->run(['openssl', 'ts', '-verify', '-data', $manFile, '-in', $respFile, '-CAfile', $ca]);
-		if (stripos($verify['out'] . $verify['err'], 'verification: ok') !== false) {
+		$argv = ['openssl', 'ts', '-verify', '-data', $manFile, '-in', $respFile, '-CAfile', $ca];
+		$verify = $this->run($argv);
+		if ($this->verified($verify)) {
 			$record['verified'] = 'ok';
-		} else {
-			$record['verified'] = 'failed';
-			$record['detail'] = $this->reason($verify['err'] . "\n" . $verify['out']);
+			return $record;
 		}
+		// An authority certificate does not live forever, and openssl checks the
+		// chain as of NOW — so the day it expires, every token ever issued under it
+		// stops verifying, though nothing about them has changed. Measured, not
+		// assumed. Check again as of the moment the token itself claims, which is
+		// what the evidence is about, and say plainly that the certificate has since
+		// expired. A token forged with a stolen key could claim a time inside the
+		// certificate's life either way, so this concedes nothing that was not
+		// already conceded by having no revocation list.
+		$stamped = $record['time'] !== '' ? strtotime((string)$record['time']) : false;
+		$expired = stripos($verify['err'] . $verify['out'], 'certificate has expired') !== false;
+		if ($expired && $stamped !== false) {
+			$again = $this->run(array_merge($argv, ['-attime', (string)$stamped]));
+			if ($this->verified($again)) {
+				$record['verified'] = 'ok-expired';
+				$record['detail'] = 'The token verifies as of the time it carries. '
+					. 'The certificate of the authority that issued it has expired since.';
+				return $record;
+			}
+		}
+		$record['verified'] = 'failed';
+		$record['detail'] = $this->reason($verify['err'] . "\n" . $verify['out']);
 		return $record;
+	}
+
+	/** @param array{out: string, err: string, code: int} $result */
+	private function verified(array $result): bool {
+		return stripos($result['out'] . $result['err'], 'verification: ok') !== false;
 	}
 
 	/**
