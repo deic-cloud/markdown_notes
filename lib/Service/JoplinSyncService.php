@@ -791,7 +791,14 @@ class JoplinSyncService {
 			if (substr($name, -3) !== '.md') {
 				continue;
 			}
-			$this->reindexNote($uid, $node, $rel, $counts, $seen);
+			try {
+				$this->reindexNote($uid, $node, $rel, $counts, $seen);
+			} catch (\Throwable $e) {
+				// A single unreadable/odd note must not abort the rebuild — that
+				// leaves the index half-built, and a half-built index makes Joplin
+				// delete what it can no longer see.
+				$this->logger->warning('markdown_notes: reindex skipped ' . $rel . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			}
 		}
 	}
 
@@ -814,8 +821,21 @@ class JoplinSyncService {
 			$body = $norm;
 			$dirty = true;
 		}
+		// Repairs (assigning a missing footer id, converging :/id links) are only
+		// written to notes the user OWNS. A shared notebook's notes belong to
+		// someone else: rewriting them from this user's reindex would edit a
+		// colleague's file behind their back, and in a CLI context it also trips
+		// core's versions hook (Filesystem::getPath returns null for a foreign
+		// mount → TypeError, aborting the whole rebuild).
 		if ($dirty) {
-			$file->putContent(NoteFormat::serialize($parsed['title'], $body, $meta));
+			$ownedHere = true;
+			try {
+				$ownedHere = ($file->getOwner()?->getUID() ?? $uid) === $uid;
+			} catch (\Throwable) {
+			}
+			if ($ownedHere) {
+				$file->putContent(NoteFormat::serialize($parsed['title'], $body, $meta));
+			}
 		}
 		$updatedMs = isset($meta['updated_time']) && $meta['updated_time'] !== ''
 			? JoplinItem::timeToMs((string)$meta['updated_time'])
