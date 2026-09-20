@@ -10,6 +10,8 @@ use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\QueuedJob;
 use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
+use OCP\IUserManager;
+use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -32,6 +34,8 @@ class PlaceSharedNotebookJob extends QueuedJob {
 		private NotesService      $notesService,
 		private JoplinSyncService $sync,
 		private IRootFolder       $rootFolder,
+		private IUserManager      $userManager,
+		private IUserSession      $userSession,
 		private LoggerInterface   $logger,
 	) {
 		parent::__construct($time);
@@ -44,6 +48,15 @@ class PlaceSharedNotebookJob extends QueuedJob {
 		if ($uid === '' || $mount === '') {
 			return;
 		}
+		// Moving a federated mount goes through core's external-share manager,
+		// which identifies the owner from the SESSION user — absent in a job, where
+		// it fails with "getUID() on null". So act as the user for the duration.
+		$previous = $this->userSession->getUser();
+		$user = $this->userManager->get($uid);
+		if ($user === null) {
+			return;
+		}
+		$this->userSession->setUser($user);
 		try {
 			\OC_Util::setupFS($uid);
 			$userFolder = $this->rootFolder->getUserFolder($uid);
@@ -74,6 +87,8 @@ class PlaceSharedNotebookJob extends QueuedJob {
 		} catch (\Throwable $e) {
 			$this->logger->warning('markdown_notes: could not place the shared notebook ' . $mount . ' for '
 				. $uid . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+		} finally {
+			$this->userSession->setUser($previous);
 		}
 	}
 }

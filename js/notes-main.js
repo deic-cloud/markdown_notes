@@ -1162,7 +1162,9 @@
 		function refresh() {
 			list.textContent = t('markdown_notes', 'Loading…');
 			ocsShare('GET', '/shares?path=' + encodeURIComponent(folder) + '&reshares=false').then(function (shares) {
-				var mine = shares.filter(function (sh) { return sh.share_type === 0 || sh.share_type === 1; });
+				var mine = shares.filter(function (sh) {
+					return sh.share_type === 0 || sh.share_type === 1 || sh.share_type === 6;
+				});
 				list.innerHTML = '';
 				if (!mine.length) {
 					var none = el2('p', 'notes-share-none');
@@ -1175,6 +1177,7 @@
 					var who = el2('span', 'notes-share-who');
 					who.textContent = (sh.share_with_displayname || sh.share_with)
 						+ (sh.share_type === 1 ? ' (' + t('markdown_notes', 'group') + ')' : '');
+					if (sh.share_type === 6) { who.title = t('markdown_notes', 'On another server of this service'); }
 					var lab = el2('label', 'notes-share-edit');
 					var cb = document.createElement('input');
 					cb.type = 'checkbox';
@@ -1206,13 +1209,22 @@
 			var term = input.value.trim();
 			if (term.length < 2) { results.innerHTML = ''; return; }
 			searchTimer = setTimeout(function () {
-				ocsShare('GET', '/sharees?search=' + encodeURIComponent(term) + '&itemType=folder&perPage=10&lookup=false')
+				// The share types must be asked for explicitly: a colleague on ANOTHER
+				// silo is offered as a "remote" (type 6, user@master), and the search
+				// plugin that finds them only runs when remote is among the requested
+				// types. Without this, cross-silo colleagues simply never appear.
+				ocsShare('GET', '/sharees?search=' + encodeURIComponent(term)
+						+ '&itemType=folder&perPage=10&lookup=false&shareType[]=0&shareType[]=1&shareType[]=6')
 					.then(function (d) {
 						var cands = []
 							.concat((d.exact && d.exact.users) || [], (d.users) || [])
 							.map(function (u) { return { label: u.label, id: u.value.shareWith, type: 0 }; })
 							.concat([].concat((d.exact && d.exact.groups) || [], (d.groups) || [])
-								.map(function (g) { return { label: g.label + ' (' + t('markdown_notes', 'group') + ')', id: g.value.shareWith, type: 1 }; }));
+								.map(function (g) { return { label: g.label + ' (' + t('markdown_notes', 'group') + ')', id: g.value.shareWith, type: 1 }; }))
+							// A cluster colleague hosted on another silo: same service,
+							// same person, reached as a federated share under the bonnet.
+							.concat([].concat((d.exact && d.exact.remotes) || [], (d.remotes) || [])
+								.map(function (r) { return { label: r.label, id: r.value.shareWith, type: r.value.shareType || 6 }; }));
 						results.innerHTML = '';
 						cands.slice(0, 10).forEach(function (c) {
 							var b = el2('button', 'notes-share-candidate');
