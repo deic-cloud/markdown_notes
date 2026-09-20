@@ -729,6 +729,36 @@ class NotesService {
 		return $this->makeRelative($this->dirOf($noteRel), $targetRel);
 	}
 
+	/** The marker that says "this folder is a notebook", readable on any node. */
+	public const NOTEBOOK_MARKER = '.notebook';
+
+	/**
+	 * Mark a folder as a notebook. A share crossing to another silo arrives there
+	 * with nothing but its name: the receiving node cannot ask where it came
+	 * from, so the fact has to travel *with* the data. Hidden, so it stays out of
+	 * the notebook tree and out of Joplin.
+	 */
+	public function markAsNotebook(Folder $folder): void {
+		try {
+			if (!$folder->nodeExists(self::NOTEBOOK_MARKER)) {
+				$folder->newFile(self::NOTEBOOK_MARKER,
+					"This folder is a notebook of the Notes app.\nIt is placed in the Notes folder of anyone it is shared with.\n");
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('markdown_notes: could not mark ' . $folder->getName() . ' as a notebook: '
+				. $e->getMessage(), ['app' => 'markdown_notes']);
+		}
+	}
+
+	/** Does this folder carry the notebook marker? */
+	public function looksLikeNotebook(Folder $folder): bool {
+		try {
+			return $folder->nodeExists(self::NOTEBOOK_MARKER);
+		} catch (\Throwable) {
+			return false;
+		}
+	}
+
 	/**
 	 * Folders that are not notebooks: `attachments` at ANY level (every notebook
 	 * may have its own), `Templates` only at the top (they are per user).

@@ -98,8 +98,16 @@ move it in the browser. The name is suffixed if it would collide. A
 sees only what their index holds. Group shares are placed for each member.
 Everything is guarded: a failure is logged and never breaks the share itself.
 
-Not covered: cross-silo (federated) shares, where the recipient's mount is
-created on another node — the listener only runs where the share is made.
+**Across silos** the same thing happens, decided on the recipient's node. A
+share to a user on another silo is a federated share: the listener there only
+marks the folder (`.notebook`, hidden, so it travels *with the data* — the
+receiving node cannot ask where a folder came from). When the recipient's silo
+mirrors the share and mounts it, files_sharding raises
+`ExternalShareMountedEvent` and `BackgroundJob/PlaceSharedNotebookJob` checks
+the marker, moves the notebook into that user's notes folder and rebuilds their
+index. Out of band, because reading the mount means a request to the owner's
+node. This also keeps the recipient's own notes-folder name (per-user config on
+their instance) out of the sharing side's business.
 
 ## History of a note
 

@@ -25,8 +25,12 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(MapperEvent::class, SystemTagMapperListener::class);
 		// Files app: our EasyMDE source editor as the click action for .md files.
 		$context->registerEventListener(LoadAdditionalScriptsEvent::class, LoadFilesScriptsListener::class);
-		// A shared notebook belongs in the recipient's own notes folder.
+		// A shared notebook belongs in the recipient's own notes folder — on this
+		// node when the recipient lives here, and on THEIR node when the share
+		// crossed silos (files_sharding tells us; referenced by name so the app
+		// stays installable without it).
 		$context->registerEventListener(\OCP\Share\Events\ShareCreatedEvent::class, \OCA\MarkdownNotes\Listener\ShareCreatedListener::class);
+		$context->registerEventListener('OCA\\FilesSharding\\Event\\ExternalShareMountedEvent', \OCA\MarkdownNotes\Listener\ExternalShareMountedListener::class);
 	}
 
 	public function boot(IBootContext $context): void {

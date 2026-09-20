@@ -50,12 +50,19 @@ class ShareCreatedListener implements IEventListener {
 		}
 		$share = $event->getShare();
 		$type  = $share->getShareType();
-		if ($type !== IShare::TYPE_USER && $type !== IShare::TYPE_GROUP) {
-			return; // links, federated and the rest: not ours to place
-		}
 		try {
 			if (!$this->isNotebook($share)) {
 				return;
+			}
+			// Mark it whatever kind of share this is: when the share crosses to
+			// another silo, the marker is the only thing telling that node this is
+			// a notebook (see PlaceSharedNotebookJob).
+			$node = $share->getNode();
+			if ($node instanceof Folder) {
+				$this->notesService->markAsNotebook($node);
+			}
+			if ($type !== IShare::TYPE_USER && $type !== IShare::TYPE_GROUP) {
+				return; // a federated recipient is placed by their own node
 			}
 			foreach ($this->recipients($share) as $uid) {
 				$this->place($share, $uid);
