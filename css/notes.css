@@ -24,7 +24,9 @@
 #app-navigation ul li.active > a,
 #app-navigation ul li.active > .notes-nb-row { background: var(--color-primary-element-light); font-weight: 600; }
 #app-navigation ul ul { margin-left: 14px; }
-.notes-nb-row { display: flex; align-items: center; gap: 4px; padding: 4px 12px; min-height: 0; border-radius: var(--border-radius); cursor: pointer; }
+/* width: the row is the flex container the share icon is pushed to the right of,
+   so it has to fill the li even where the li is not block-level. */
+.notes-nb-row { display: flex; align-items: center; gap: 4px; padding: 4px 12px; min-height: 0; width: 100%; box-sizing: border-box; border-radius: var(--border-radius); cursor: pointer; }
 /* Name shrinks to content so the count sits right after the title (Joplin-style),
    not pushed to the far right; whole row is clickable so keep a pointer cursor. */
 .notes-nb-row .notes-nb-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
