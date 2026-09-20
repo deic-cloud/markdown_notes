@@ -848,6 +848,7 @@
 	function openNote(path) {
 		return get('/note', p('path', path)).then(function (note) {
 			state.notePath = note.path;
+			state.noteFileId = note.fileid || 0;
 			el('notes-editor-empty').style.display = 'none';
 			el('notes-editor-wrap').style.display = 'flex';
 			ensureEditor();
@@ -1092,6 +1093,139 @@
 				}
 			})
 			.catch(showError);
+	}
+
+	// ── History (past versions of the open note) ──────────────────────────────
+	// Straight off Nextcloud's versions API: every write through any path — this
+	// app, Joplin, WebDAV, the sync client — produces a version, and core records
+	// who made it (nc:version-author). No bookkeeping of our own.
+	function versionsBase() {
+		var uid = (OC.getCurrentUser && OC.getCurrentUser() && OC.getCurrentUser().uid) || '';
+		return (OC.webroot || '') + '/remote.php/dav/versions/' + encodeURIComponent(uid);
+	}
+	function fmtBytes(n) {
+		n = Number(n) || 0;
+		if (n < 1024) { return n + ' B'; }
+		if (n < 1024 * 1024) { return (n / 1024).toFixed(1) + ' KB'; }
+		return (n / 1024 / 1024).toFixed(1) + ' MB';
+	}
+	function listVersions(fileId) {
+		var body = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:nc="http://nextcloud.org/ns">'
+			+ '<d:prop><d:getlastmodified/><d:getcontentlength/><nc:version-author/><nc:version-label/></d:prop></d:propfind>';
+		return fetch(versionsBase() + '/versions/' + encodeURIComponent(fileId), {
+			method: 'PROPFIND',
+			headers: { Depth: '1', 'Content-Type': 'text/xml', requesttoken: OC.requestToken },
+			body: body,
+		}).then(function (r) {
+			if (!r.ok) { throw new Error('HTTP ' + r.status); }
+			return r.text();
+		}).then(function (xml) {
+			var doc = new DOMParser().parseFromString(xml, 'application/xml');
+			var out = [];
+			var responses = doc.getElementsByTagNameNS('DAV:', 'response');
+			for (var i = 0; i < responses.length; i++) {
+				var res = responses[i];
+				var href = textOf(res, 'DAV:', 'href');
+				if (!href || /\/$/.test(href)) { continue; }   // the collection itself
+				out.push({
+					href: href,
+					modified: textOf(res, 'DAV:', 'getlastmodified'),
+					size: textOf(res, 'DAV:', 'getcontentlength'),
+					author: textOf(res, 'http://nextcloud.org/ns', 'version-author'),
+					label: textOf(res, 'http://nextcloud.org/ns', 'version-label'),
+				});
+			}
+			out.sort(function (a, b) { return new Date(b.modified) - new Date(a.modified); });
+			return out;
+		});
+	}
+	function textOf(el, ns, name) {
+		var n = el.getElementsByTagNameNS(ns, name);
+		return n.length ? (n[0].textContent || '') : '';
+	}
+	function openHistory() {
+		if (!state.notePath) { return; }
+		if (!state.noteFileId) { showError(t('markdown_notes', 'This note has no file id yet — save it first.')); return; }
+		var back = el2('div', 'notes-modal-backdrop');
+		var modal = el2('div', 'notes-modal notes-history');
+		var h = el2('h3', ''); h.textContent = t('markdown_notes', 'History');
+		var sub = el2('p', 'notes-history-sub');
+		sub.textContent = t('markdown_notes', 'Earlier versions of this note, whoever wrote them and however they were saved.');
+		var bodyEl = el2('div', 'notes-modal-body');
+		bodyEl.textContent = t('markdown_notes', 'Loading…');
+		var actions = el2('div', 'notes-modal-actions');
+		var closeB = el2('button', ''); closeB.type = 'button'; closeB.textContent = t('markdown_notes', 'Close');
+		actions.appendChild(closeB);
+		modal.appendChild(h); modal.appendChild(sub); modal.appendChild(bodyEl); modal.appendChild(actions);
+		back.appendChild(modal); document.body.appendChild(back);
+		function close() { if (back.parentNode) { document.body.removeChild(back); } document.removeEventListener('keydown', onKey); }
+		function onKey(e) { if (e.key === 'Escape') { close(); } }
+		closeB.addEventListener('click', close);
+		back.addEventListener('click', function (e) { if (e.target === back) { close(); } });
+		document.addEventListener('keydown', onKey);
+
+		listVersions(state.noteFileId).then(function (versions) {
+			bodyEl.innerHTML = '';
+			if (!versions.length) {
+				bodyEl.appendChild(el2('p', '')).textContent = t('markdown_notes', 'No earlier versions yet — they appear once the note has been changed.');
+				return;
+			}
+			var table = el2('table', 'notes-history-table');
+			versions.forEach(function (v) {
+				var tr = document.createElement('tr');
+				var when = el2('td', 'notes-history-when');
+				when.textContent = new Date(v.modified).toLocaleString();
+				var who = el2('td', 'notes-history-who');
+				who.textContent = v.author || t('markdown_notes', 'unknown');
+				var size = el2('td', 'notes-history-size');
+				size.textContent = fmtBytes(v.size);
+				var act = el2('td', 'notes-history-act');
+				var viewB = el2('button', ''); viewB.type = 'button'; viewB.textContent = t('markdown_notes', 'View');
+				var restB = el2('button', ''); restB.type = 'button'; restB.textContent = t('markdown_notes', 'Restore');
+				viewB.addEventListener('click', function () { viewVersion(v, bodyEl, table); });
+				restB.addEventListener('click', function () { restoreVersion(v, close); });
+				act.appendChild(viewB); act.appendChild(restB);
+				tr.appendChild(when); tr.appendChild(who); tr.appendChild(size); tr.appendChild(act);
+				table.appendChild(tr);
+			});
+			bodyEl.appendChild(table);
+		}).catch(function (e) {
+			bodyEl.textContent = t('markdown_notes', 'Could not read the history') + ': ' + e.message;
+		});
+	}
+	function viewVersion(v, bodyEl, table) {
+		fetch(v.href, { headers: { requesttoken: OC.requestToken } })
+			.then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.text(); })
+			.then(function (text) {
+				bodyEl.innerHTML = '';
+				var bar = el2('div', 'notes-history-bar');
+				var backB = el2('button', ''); backB.type = 'button';
+				backB.textContent = '← ' + t('markdown_notes', 'Versions');
+				backB.addEventListener('click', function () { bodyEl.innerHTML = ''; bodyEl.appendChild(table); });
+				var lab = el2('span', '');
+				lab.textContent = new Date(v.modified).toLocaleString() + ' · ' + (v.author || t('markdown_notes', 'unknown'));
+				bar.appendChild(backB); bar.appendChild(lab);
+				var pre = el2('pre', 'notes-history-pre');
+				pre.textContent = text;
+				bodyEl.appendChild(bar); bodyEl.appendChild(pre);
+			})
+			.catch(function (e) { showError(t('markdown_notes', 'Could not read that version') + ': ' + e.message); });
+	}
+	function restoreVersion(v, close) {
+		ncConfirm(
+			t('markdown_notes', 'Restore this version? The current text is kept as a version of its own, so nothing is lost.'),
+			t('markdown_notes', 'Restore version'),
+			function () {
+				fetch(v.href, {
+					method: 'MOVE',
+					headers: { Destination: versionsBase() + '/restore/target', requesttoken: OC.requestToken },
+				}).then(function (r) {
+					if (!r.ok) { throw new Error('HTTP ' + r.status); }
+					close();
+					return openNote(state.notePath).then(refreshAfterChange);
+				}).catch(function (e) { showError(t('markdown_notes', 'Could not restore that version') + ': ' + e.message); });
+			}
+		);
 	}
 
 	// ── Dialogs (NC-styled, not browser prompt/confirm) ──────────────────────
@@ -1384,6 +1518,7 @@
 		});
 		el('notes-back').addEventListener('click', backToList);
 		el('notes-delete').addEventListener('click', deleteNote);
+		el('notes-history').addEventListener('click', openHistory);
 		el('notes-search').addEventListener('input', renderList);
 		el('notes-show-footer').addEventListener('change', function () {
 			el('notes-footer-view').style.display = this.checked ? 'block' : 'none';

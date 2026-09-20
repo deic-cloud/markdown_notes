@@ -329,3 +329,20 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
    resets weight; specific selectors so NC's #app-navigation rules don't win. */
 #notes-nav-list .notes-nav-all a { display: flex; align-items: center; gap: 6px; }
 #notes-nav-list .notes-nav-all a .notes-all-count { padding-left: 2px; font-weight: normal; opacity: .8; }
+
+/* History: past versions of the open note (Nextcloud's versions API). */
+.notes-modal.notes-history { min-width: 520px; }
+.notes-history-sub { margin: -8px 0 12px; color: var(--color-text-maxcontrast); font-size: .9em; }
+.notes-history-table { width: 100%; border-collapse: collapse; font-size: .95em; }
+.notes-history-table tr { border-bottom: 1px solid var(--color-border); }
+.notes-history-table td { padding: 6px 8px; vertical-align: middle; }
+.notes-history-when { white-space: nowrap; }
+.notes-history-who { color: var(--color-text-maxcontrast); }
+.notes-history-size { color: var(--color-text-maxcontrast); white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.notes-history-act { white-space: nowrap; text-align: right; }
+.notes-history-act button { margin-left: 6px; }
+.notes-history-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.notes-history-bar span { color: var(--color-text-maxcontrast); font-size: .9em; }
+.notes-history-pre { max-height: 55vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+	background: var(--color-background-dark); padding: 10px; border-radius: var(--border-radius); font-size: .9em; }
+@media (max-width: 768px) { .notes-modal.notes-history { min-width: 0; width: 92vw; } }

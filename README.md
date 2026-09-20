@@ -80,6 +80,20 @@ sync that the web lacks.
 * Insert images by picking an existing file from Nextcloud or uploading into
   `attachments/`.
 
+## History of a note
+
+The editor's **History** button lists the note's earlier versions with their
+time, size and **author**, and offers *View* (read-only) and *Restore*. There is
+no bookkeeping of our own behind it: Nextcloud stores a version on every write
+through **any** path — this app, Joplin, WebDAV, the sync client — and core's
+`VersionAuthorListener` records who made it. The button reads the versions DAV
+API (`/remote.php/dav/versions/<uid>/versions/<fileid>`, asking for
+`nc:version-author`) and restores by MOVEing a version onto
+`…/versions/<uid>/restore/target`, exactly as the Files sidebar does. Restoring
+keeps the replaced text as a version of its own, so nothing is lost. A blank
+author means the write had no logged-in user (a daemon, the importer, a CLI run)
+or the row was reconstructed by core from version files found on disk.
+
 ## Tags & metadata
 
 ### Attachments are cleaned up when a note is deleted
