@@ -368,9 +368,17 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 /* Share control on a top-level notebook row, and its dialog. */
 /* Flush right, and sized by hand: a stock <button> carries NC's 44px clickable
    minimum, which was making every notebook row that tall. */
-.notes-nb-row .notes-nb-share { flex: 0 0 auto; margin-left: auto; background: none; border: none;
+.notes-nb-row .notes-nb-share { flex: 0 0 auto; background: none; border: none;
 	padding: 0; min-height: 0; height: 18px; width: 18px; display: inline-flex; align-items: center;
 	justify-content: center; color: var(--color-text-maxcontrast); cursor: pointer; opacity: 0; line-height: 1; }
+/* The push to the right edge needs its own, heavier selector. Core's
+   inputs.scss says `margin: 3px; margin-inline-start: 0` for a plain button
+   through `button:not(.button-vue,[class^=vs__]):not(.app-navigation-entry-button)`
+   — three simple selectors' worth of weight (0,2,1), which beats a two-class
+   rule of ours. Scoping to the panel the row lives in wins it back without an
+   !important, and zeroing the rest of that shorthand takes 6px of core margin
+   back out of the row height. */
+#app-navigation .notes-nb-row .notes-nb-share { margin: 0; margin-inline-start: auto; }
 .notes-nb-row .notes-nb-share svg { display: block; }
 .notes-nb-row:hover .notes-nb-share, .notes-nb-row .notes-nb-share:focus { opacity: .85; }
 .notes-nb-row .notes-nb-share:hover { opacity: 1; color: var(--color-main-text); }
