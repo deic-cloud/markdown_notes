@@ -849,6 +849,7 @@
 		return get('/note', p('path', path)).then(function (note) {
 			state.notePath = note.path;
 			state.noteFileId = note.fileid || 0;
+			state.noteMtime = note.mtime || 0;
 			el('notes-editor-empty').style.display = 'none';
 			el('notes-editor-wrap').style.display = 'flex';
 			ensureEditor();
@@ -957,6 +958,7 @@
 		el('notes-status').textContent = 'Saving…';
 		post('/note/save', params).then(function (note) {
 			el('notes-status').textContent = 'Saved ✓';
+			if (note.mtime) { state.noteMtime = note.mtime; }
 			applyTodoFields(note.meta);
 			renderFooter(note.meta);
 			setTimeout(function () { el('notes-status').textContent = ''; }, 1500);
@@ -1166,25 +1168,37 @@
 
 		listVersions(state.noteFileId).then(function (versions) {
 			bodyEl.innerHTML = '';
-			if (!versions.length) {
+			var earlier = versions.filter(function (v) {
+				return !(state.noteMtime && Math.abs(Math.floor(Date.parse(v.modified) / 1000) - state.noteMtime) <= 1);
+			});
+			if (!earlier.length) {
 				bodyEl.appendChild(el2('p', '')).textContent = t('markdown_notes', 'No earlier versions yet — they appear once the note has been changed.');
 				return;
 			}
 			var table = el2('table', 'notes-history-table');
 			versions.forEach(function (v) {
+				// Nextcloud's collection also lists the CURRENT version — same mtime
+				// as the note itself. It has no version file, so fetching it 404s:
+				// label it and offer no actions.
+				var isCurrent = state.noteMtime
+					&& Math.abs(Math.floor(Date.parse(v.modified) / 1000) - state.noteMtime) <= 1;
 				var tr = document.createElement('tr');
+				if (isCurrent) { tr.className = 'notes-history-current'; }
 				var when = el2('td', 'notes-history-when');
-				when.textContent = new Date(v.modified).toLocaleString();
+				when.textContent = new Date(v.modified).toLocaleString()
+					+ (isCurrent ? ' · ' + t('markdown_notes', 'current version') : '');
 				var who = el2('td', 'notes-history-who');
 				who.textContent = v.author || t('markdown_notes', 'unknown');
 				var size = el2('td', 'notes-history-size');
 				size.textContent = fmtBytes(v.size);
 				var act = el2('td', 'notes-history-act');
-				var viewB = el2('button', ''); viewB.type = 'button'; viewB.textContent = t('markdown_notes', 'View');
-				var restB = el2('button', ''); restB.type = 'button'; restB.textContent = t('markdown_notes', 'Restore');
-				viewB.addEventListener('click', function () { viewVersion(v, bodyEl, table); });
-				restB.addEventListener('click', function () { restoreVersion(v, close); });
-				act.appendChild(viewB); act.appendChild(restB);
+				if (!isCurrent) {
+					var viewB = el2('button', ''); viewB.type = 'button'; viewB.textContent = t('markdown_notes', 'View');
+					var restB = el2('button', ''); restB.type = 'button'; restB.textContent = t('markdown_notes', 'Restore');
+					viewB.addEventListener('click', function () { viewVersion(v, bodyEl, table); });
+					restB.addEventListener('click', function () { restoreVersion(v, close); });
+					act.appendChild(viewB); act.appendChild(restB);
+				}
 				tr.appendChild(when); tr.appendChild(who); tr.appendChild(size); tr.appendChild(act);
 				table.appendChild(tr);
 			});

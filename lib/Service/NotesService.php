@@ -257,6 +257,9 @@ class NotesService {
 		return [
 			'path'   => trim($rel, '/'),
 			'fileid' => $file->getId(),
+			// The History view needs it: Nextcloud's versions collection also lists
+			// the CURRENT version, identified by matching the file's mtime.
+			'mtime'  => $file->getMTime(),
 			'title'  => $parsed['title'],
 			'body'   => $parsed['body'],
 			'tags'   => $parsed['tags'],

@@ -94,6 +94,11 @@ keeps the replaced text as a version of its own, so nothing is lost. A blank
 author means the write had no logged-in user (a daemon, the importer, a CLI run)
 or the row was reconstructed by core from version files found on disk.
 
+Note that the collection also lists the **current** version — the entry whose
+mtime matches the file's (which is why `getNote` returns `mtime`). It has no
+version file behind it, so fetching it 404s; the list labels it *current
+version* and offers no actions on it.
+
 ## Tags & metadata
 
 ### Attachments are cleaned up when a note is deleted
