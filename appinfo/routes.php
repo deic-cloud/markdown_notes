@@ -48,5 +48,7 @@ return [
 		['name' => 'api#deleteNotebooks', 'url' => '/api/v1/notebooks/delete', 'verb' => 'POST'],
 		['name' => 'api#rename',         'url' => '/api/v1/rename',          'verb' => 'POST'],
 		['name' => 'api#gc',             'url' => '/api/v1/gc',              'verb' => 'POST'],
+		['name' => 'api#timestamps',     'url' => '/api/v1/note/timestamps', 'verb' => 'GET'],
+		['name' => 'api#timestamp',      'url' => '/api/v1/note/timestamp',  'verb' => 'POST'],
 	],
 ];

@@ -181,6 +181,10 @@
 			// Total after "All notes" (top-level notes + every notebook).
 			var allCount = el('notes-all-count');
 			if (allCount) { allCount.textContent = typeof d.noteCount === 'number' ? String(d.noteCount) : ''; }
+			// No timestamp authority on this server → no Timestamp button.
+			state.timestamping = !!d.timestamping;
+			var tsBtn = el('notes-timestamp');
+			if (tsBtn) { tsBtn.style.display = state.timestamping ? '' : 'none'; }
 		});
 	}
 	function renderNotebooks(tree) {
@@ -1392,6 +1396,104 @@
 		);
 	}
 
+	// ── Trusted timestamps ────────────────────────────────────────────────────
+	// A timestamp covers the note AND every file it links to, listed in a small
+	// manifest that is stamped and kept beside the token in the notebook's
+	// `timestamps/` folder. Two things can be said about an existing stamp, and
+	// they are shown separately because they fail differently: whether the token
+	// itself is genuine, and whether the files still match what was stamped.
+	function openTimestamps() {
+		if (!state.notePath) { return; }
+		var back = el2('div', 'notes-modal-backdrop');
+		var modal = el2('div', 'notes-modal notes-stamps');
+		var h = el2('h3', ''); h.textContent = t('markdown_notes', 'Trusted timestamps');
+		var sub = el2('p', 'notes-history-sub');
+		sub.textContent = t('markdown_notes',
+			'A timestamp proves that this note, and the files it links to, existed in this form at that time. It says nothing about who wrote it.');
+		var bodyEl = el2('div', 'notes-modal-body');
+		bodyEl.textContent = t('markdown_notes', 'Loading…');
+		var actions = el2('div', 'notes-modal-actions');
+		var stampB = el2('button', 'primary'); stampB.type = 'button';
+		stampB.textContent = t('markdown_notes', 'Timestamp this note');
+		var closeB = el2('button', ''); closeB.type = 'button'; closeB.textContent = t('markdown_notes', 'Close');
+		actions.appendChild(stampB); actions.appendChild(closeB);
+		modal.appendChild(h); modal.appendChild(sub); modal.appendChild(bodyEl); modal.appendChild(actions);
+		back.appendChild(modal); document.body.appendChild(back);
+		function close() { if (back.parentNode) { document.body.removeChild(back); } document.removeEventListener('keydown', onKey); }
+		function onKey(e) { if (e.key === 'Escape') { close(); } }
+		closeB.addEventListener('click', close);
+		back.addEventListener('click', function (e) { if (e.target === back) { close(); } });
+		document.addEventListener('keydown', onKey);
+
+		function render(stamps) {
+			bodyEl.innerHTML = '';
+			if (!stamps.length) {
+				var none = el2('p', '');
+				none.textContent = t('markdown_notes', 'This note has not been timestamped yet.');
+				bodyEl.appendChild(none);
+				return;
+			}
+			var table = el2('table', 'notes-stamps-table');
+			stamps.forEach(function (s) { table.appendChild(stampRow(s)); });
+			bodyEl.appendChild(table);
+		}
+		function load() {
+			return get('/note/timestamps', p('path', state.notePath)).then(function (d) {
+				render(d.stamps || []);
+			}).catch(function (e) {
+				bodyEl.textContent = t('markdown_notes', 'Could not read the timestamps') + ': ' + e.message;
+			});
+		}
+		stampB.addEventListener('click', function () {
+			stampB.disabled = true;
+			bodyEl.textContent = t('markdown_notes', 'Asking the timestamp authority…');
+			post('/note/timestamp', p('path', state.notePath)).then(function () {
+				return load();
+			}).catch(function (e) {
+				bodyEl.innerHTML = '';
+				var err = el2('p', 'notes-stamp-error');
+				err.textContent = t('markdown_notes', 'Could not timestamp this note') + ': ' + e.message;
+				bodyEl.appendChild(err);
+			}).then(function () { stampB.disabled = false; });
+		});
+		load();
+	}
+	function stampRow(s) {
+		var tr = document.createElement('tr');
+		var when = el2('td', 'notes-stamp-when');
+		when.textContent = s.time || new Date((s.created || 0) * 1000).toLocaleString();
+		var state1 = el2('td', 'notes-stamp-token');
+		if (s.verified === 'ok') {
+			state1.className += ' notes-stamp-ok';
+			state1.textContent = t('markdown_notes', 'Token verified');
+		} else if (s.verified === 'failed') {
+			state1.className += ' notes-stamp-bad';
+			state1.textContent = t('markdown_notes', 'Token does NOT verify');
+		} else if (s.verified === 'no-ca') {
+			state1.textContent = t('markdown_notes', 'Token not checked (no CA on this server)');
+		} else if (s.verified === 'no-manifest') {
+			state1.className += ' notes-stamp-bad';
+			state1.textContent = t('markdown_notes', 'Manifest missing');
+		} else {
+			state1.textContent = t('markdown_notes', 'Unknown');
+		}
+		if (s.detail) { state1.title = s.detail; }
+		var content = el2('td', 'notes-stamp-content');
+		if (s.matches === true) {
+			content.className += ' notes-stamp-ok';
+			content.textContent = t('markdown_notes', 'Unchanged since then')
+				+ ' (' + (s.files || 0) + ' ' + t('markdown_notes', 'files covered') + ')';
+		} else if (s.matches === false) {
+			var parts = [];
+			if ((s.changed || []).length) { parts.push(t('markdown_notes', 'changed') + ': ' + s.changed.join(', ')); }
+			if ((s.missing || []).length) { parts.push(t('markdown_notes', 'missing') + ': ' + s.missing.join(', ')); }
+			content.className += ' notes-stamp-changed';
+			content.textContent = t('markdown_notes', 'Changed since then') + ' — ' + parts.join('; ');
+		}
+		tr.appendChild(when); tr.appendChild(state1); tr.appendChild(content);
+		return tr;
+	}
+
 	// ── Dialogs (NC-styled, not browser prompt/confirm) ──────────────────────
 	function ncConfirm(text, title, onYes) {
 		if (window.OC && OC.dialogs && OC.dialogs.confirm) {
@@ -1683,6 +1785,7 @@
 		el('notes-back').addEventListener('click', backToList);
 		el('notes-delete').addEventListener('click', deleteNote);
 		el('notes-history').addEventListener('click', openHistory);
+		el('notes-timestamp').addEventListener('click', openTimestamps);
 		el('notes-search').addEventListener('input', renderList);
 		el('notes-show-footer').addEventListener('change', function () {
 			el('notes-footer-view').style.display = this.checked ? 'block' : 'none';

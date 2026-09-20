@@ -351,6 +351,20 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 	background: var(--color-background-dark); padding: 10px; border-radius: var(--border-radius); font-size: .9em; }
 @media (max-width: 768px) { .notes-modal.notes-history { min-width: 0; width: 92vw; } }
 
+/* Trusted timestamps. Green and red are the filled, readable pair, not NC's
+   pale background tints; "changed since then" is ordinary news, not an error. */
+.notes-modal.notes-stamps { min-width: 560px; }
+.notes-stamps-table { width: 100%; border-collapse: collapse; font-size: .95em; }
+.notes-stamps-table tr { border-bottom: 1px solid var(--color-border); }
+.notes-stamps-table td { padding: 6px 8px; vertical-align: top; }
+.notes-stamp-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.notes-stamp-token, .notes-stamp-content { color: var(--color-text-maxcontrast); }
+.notes-stamp-ok { color: #2d7d46; }
+.notes-stamp-bad { color: #c9302c; font-weight: 600; }
+.notes-stamp-changed { color: var(--color-main-text); }
+.notes-stamp-error { color: #c9302c; }
+@media (max-width: 768px) { .notes-modal.notes-stamps { min-width: 0; width: 92vw; } }
+
 /* Share control on a top-level notebook row, and its dialog. */
 /* Flush right, and sized by hand: a stock <button> carries NC's 44px clickable
    minimum, which was making every notebook row that tall. */

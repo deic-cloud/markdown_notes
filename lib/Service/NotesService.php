@@ -21,7 +21,7 @@ use Psr\Log\LoggerInterface;
  */
 class NotesService {
 	/** Visible, special folders kept out of the notebook tree. */
-	public const SPECIAL = ['Templates', 'attachments'];
+	public const SPECIAL = ['Templates', 'attachments', 'timestamps'];
 
 	public function __construct(
 		private IRootFolder $rootFolder,
@@ -163,7 +163,8 @@ class NotesService {
 
 	public function deleteNotebook(string $uid, string $rel, bool $cleanup = true): array {
 		$rel = trim($rel, '/');
-		if ($rel === '' || in_array($rel, self::SPECIAL, true) || str_ends_with($rel, '/attachments')) {
+		if ($rel === '' || in_array($rel, self::SPECIAL, true)
+			|| str_ends_with($rel, '/attachments') || str_ends_with($rel, '/timestamps')) {
 			throw new NotesException('Refusing to delete this folder.');
 		}
 		// Attachments its notes referenced elsewhere (its own attachments/ folder
@@ -760,11 +761,11 @@ class NotesService {
 	}
 
 	/**
-	 * Folders that are not notebooks: `attachments` at ANY level (every notebook
-	 * may have its own), `Templates` only at the top (they are per user).
+	 * Folders that are not notebooks: `attachments` and `timestamps` at ANY level
+	 * (every notebook has its own), `Templates` only at the top (per user).
 	 */
 	public static function isSpecialDir(string $name, bool $top): bool {
-		return $name === 'attachments' || ($top && $name === 'Templates');
+		return $name === 'attachments' || $name === 'timestamps' || ($top && $name === 'Templates');
 	}
 
 	private function makeRelative(string $fromDir, string $target): string {

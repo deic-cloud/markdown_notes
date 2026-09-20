@@ -8,6 +8,7 @@ use OCA\MarkdownNotes\Service\MetaDataBridge;
 use OCA\MarkdownNotes\Service\NotesException;
 use OCA\MarkdownNotes\Service\NotesService;
 use OCA\MarkdownNotes\Service\SystemTagSync;
+use OCA\MarkdownNotes\Service\TimestampService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
@@ -22,6 +23,7 @@ class ApiController extends OCSController {
 		private NotesService $notesService,
 		private SystemTagSync $systemTagSync,
 		private MetaDataBridge $metaBridge,
+		private TimestampService $timestamps,
 		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
@@ -50,6 +52,9 @@ class ApiController extends OCSController {
 			$tree = $this->notesService->notebookTree($this->uid());
 			return [
 				'notesFolder' => $this->notesService->notesFolderName($this->uid()),
+				// Whether this server has a timestamp authority at all: the Timestamp
+				// button stays hidden where there is none.
+				'timestamping' => $this->timestamps->isConfigured(),
 				'notebooks'   => $tree,
 				'noteCount'   => $this->notesService->totalNoteCount($this->uid(), $tree),
 				'tags'        => array_map(static fn ($n) => ['name' => $n, 'color' => $colors[$n] ?? ''], $names),
@@ -289,6 +294,23 @@ class ApiController extends OCSController {
 			$reclaimed = $deleted > 0 ? $this->notesService->cleanupAttachments($uid, $candidates) : 0;
 			return ['deleted' => $deleted, 'missing' => $missing, 'reclaimed' => $reclaimed];
 		});
+	}
+
+	/**
+	 * Every trusted timestamp of one note, each with its verification. Also says
+	 * whether this server has an authority at all, so the UI can hide the button.
+	 */
+	#[NoAdminRequired]
+	public function timestamps(string $path): DataResponse {
+		return $this->run(fn () => [
+			'configured' => $this->timestamps->isConfigured(),
+			'stamps'     => $this->timestamps->listFor($this->uid(), $path),
+		]);
+	}
+
+	#[NoAdminRequired]
+	public function timestamp(string $path): DataResponse {
+		return $this->run(fn () => $this->timestamps->stamp($this->uid(), $path));
 	}
 
 	#[NoAdminRequired]

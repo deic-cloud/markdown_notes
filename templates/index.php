@@ -64,6 +64,7 @@
 				<input type="text" id="notes-title" placeholder="<?php p($l->t('Title')); ?>" />
 				<button id="notes-save" type="button" class="primary"><?php p($l->t('Save')); ?></button>
 				<button id="notes-history" type="button" title="<?php p($l->t('Earlier versions of this note')); ?>"><?php p($l->t('History')); ?></button>
+				<button id="notes-timestamp" type="button" style="display:none" title="<?php p($l->t('Prove that this note and the files it links existed now')); ?>"><?php p($l->t('Timestamp')); ?></button>
 				<button id="notes-delete" type="button" title="<?php p($l->t('Delete note')); ?>"><span class="icon-delete"></span></button>
 				<span id="notes-status"></span>
 			</div>
