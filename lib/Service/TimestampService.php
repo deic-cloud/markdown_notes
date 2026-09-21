@@ -47,9 +47,38 @@ class TimestampService {
 	) {
 	}
 
+	/**
+	 * Settings come from a plain text file first, and from the database second.
+	 *
+	 * A deployment keeps its own settings in config/*.config.php beside
+	 * `my_ca_certificate`, which is a file an operator edits in an editor, saves
+	 * when it reads right, and can put back if it does not. Trust settings belong
+	 * there rather than behind a command line. The whole feature is one block:
+	 *
+	 *   'markdown_notes_tsa' => [
+	 *       'url'    => 'https://sciencedata.dk/tsa/',
+	 *       'ca'     => '',          // empty: use my_ca_certificate
+	 *       'policy' => '',
+	 *       'pins'   => [
+	 *           ['fingerprint' => '4EBC…', 'from' => '2026-09-20', 'until' => '', 'note' => '…'],
+	 *       ],
+	 *   ],
+	 *
+	 * Anything the block does not mention falls back to app configuration
+	 * (`occ config:app:set markdown_notes tsa_url …`), which is what a container
+	 * built by a script uses.
+	 */
+	private function setting(string $name, string $appKey): string {
+		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
+		if (is_array($block) && isset($block[$name]) && is_string($block[$name]) && trim($block[$name]) !== '') {
+			return trim($block[$name]);
+		}
+		return trim($this->appConfig->getValueString('markdown_notes', $appKey, ''));
+	}
+
 	/** The timestamp authority this node talks to; '' hides the feature. */
 	public function tsaUrl(): string {
-		return trim($this->appConfig->getValueString('markdown_notes', 'tsa_url', ''));
+		return $this->setting('url', 'tsa_url');
 	}
 
 	public function isConfigured(): bool {
@@ -77,6 +106,10 @@ class TimestampService {
 	 * @return list<array{fingerprint: string, from: string, until: string, note: string}>
 	 */
 	public function pins(): array {
+		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
+		if (is_array($block) && isset($block['pins']) && is_array($block['pins'])) {
+			return $this->cleanPins($block['pins']);
+		}
 		$raw = trim($this->appConfig->getValueString('markdown_notes', 'tsa_pins', ''));
 		if ($raw === '') {
 			return [];
@@ -87,6 +120,23 @@ class TimestampService {
 				['app' => 'markdown_notes']);
 			return [['fingerprint' => 'unreadable', 'from' => '', 'until' => '', 'note' => 'unreadable']];
 		}
+		return $this->cleanPins($decoded);
+	}
+
+	/** Where the pin list is being read from, for the command to report. */
+	public function pinsSource(): string {
+		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
+		if (is_array($block) && isset($block['pins']) && is_array($block['pins'])) {
+			return 'config file (markdown_notes_tsa.pins)';
+		}
+		return 'app configuration (markdown_notes tsa_pins)';
+	}
+
+	/**
+	 * @param array<mixed> $decoded
+	 * @return list<array{fingerprint: string, from: string, until: string, note: string}>
+	 */
+	private function cleanPins(array $decoded): array {
 		$out = [];
 		foreach ($decoded as $entry) {
 			if (!is_array($entry) || !isset($entry['fingerprint'])) {
@@ -118,7 +168,7 @@ class TimestampService {
 	 * its certificates from — every node sets `my_ca_certificate`.
 	 */
 	private function caFile(): string {
-		$ca = trim($this->appConfig->getValueString('markdown_notes', 'tsa_ca', ''));
+		$ca = $this->setting('ca', 'tsa_ca');
 		if ($ca === '') {
 			$ca = $this->config->getSystemValueString('my_ca_certificate', '');
 		}
@@ -558,7 +608,7 @@ class TimestampService {
 
 	/** @return list<string> */
 	private function policyArgs(): array {
-		$policy = trim($this->appConfig->getValueString('markdown_notes', 'tsa_policy', ''));
+		$policy = $this->setting('policy', 'tsa_policy');
 		return $policy === '' ? [] : ['-policy', $policy];
 	}
 

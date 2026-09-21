@@ -44,7 +44,9 @@ class TsaPins extends Command {
 			->addOption('from', null, InputOption::VALUE_REQUIRED, 'Accept tokens dated on or after (YYYY-MM-DD)')
 			->addOption('until', null, InputOption::VALUE_REQUIRED, 'Accept tokens dated on or before (YYYY-MM-DD)')
 			->addOption('note', null, InputOption::VALUE_REQUIRED, 'Free text kept with the entry')
-			->addOption('remove', null, InputOption::VALUE_REQUIRED, 'SHA-256 fingerprint to remove');
+			->addOption('remove', null, InputOption::VALUE_REQUIRED, 'SHA-256 fingerprint to remove')
+			->addOption('write', null, InputOption::VALUE_NONE,
+				'Store the result in app configuration instead of printing it for the config file');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int {
@@ -81,12 +83,24 @@ class TsaPins extends Command {
 			$pins = array_values(array_filter($pins, static fn ($p) => $p['fingerprint'] !== $fp));
 			$pins[] = ['fingerprint' => $fp, 'from' => $from, 'until' => $until,
 				'note' => (string)($input->getOption('note') ?? '')];
-			$this->timestamps->setPins($pins);
-			$output->writeln('Accepting ' . $fp
-				. ($from !== '' ? ' from ' . $from : '')
-				. ($until !== '' ? ' until ' . $until : '') . '.');
+			if ($input->getOption('write')) {
+				$this->timestamps->setPins($pins);
+				$output->writeln('Stored in app configuration. Accepting ' . $fp
+					. ($from !== '' ? ' from ' . $from : '')
+					. ($until !== '' ? ' until ' . $until : '') . '.');
+			} else {
+				// Trust settings belong in a file someone reviewed and saved, not in
+				// whatever a command happened to write, so the default is to hand the
+				// block over rather than to change anything.
+				$output->writeln('Nothing was changed. Put this in config/sciencedata.config.php '
+					. '(or pass --write to store it in app configuration instead):');
+				$output->writeln('');
+				$output->writeln($this->block($pins));
+				return 0;
+			}
 		}
 
+		$output->writeln('Read from: ' . $this->timestamps->pinsSource());
 		if ($pins === []) {
 			$output->writeln('No authority is pinned: any token that chains to the CA is accepted.');
 			return 0;
@@ -99,6 +113,23 @@ class TsaPins extends Command {
 				$p['note']));
 		}
 		return 0;
+	}
+
+	/**
+	 * The whole list as a block to paste into a config file. Printed, never
+	 * written: a text file is edited, reviewed and saved by a person.
+	 *
+	 * @param list<array{fingerprint: string, from: string, until: string, note: string}> $pins
+	 */
+	private function block(array $pins): string {
+		$lines = ["'markdown_notes_tsa' => [", "\t'pins' => ["];
+		foreach ($pins as $p) {
+			$lines[] = sprintf("\t\t['fingerprint' => '%s', 'from' => '%s', 'until' => '%s', 'note' => '%s'],",
+				$p['fingerprint'], $p['from'], $p['until'], str_replace("'", "\\'", $p['note']));
+		}
+		$lines[] = "\t],";
+		$lines[] = '],';
+		return implode("\n", $lines);
 	}
 
 	/** Fingerprint of a PEM certificate, or of the authority certificate inside a token. */

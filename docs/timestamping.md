@@ -50,20 +50,39 @@ it was.
 
 ## Settings
 
-All four live in Nextcloud's **app configuration** (the `oc_appconfig` table,
-`appid` = `markdown_notes`), not in a file on disk. They are per node, like every
-other app setting, so they have to be set on each node.
+Two places, in this order.
 
-| Key | Meaning |
-|-----|---------|
-| `tsa_url` | The authority's RFC 3161 endpoint. Empty (the default) hides the feature. |
-| `tsa_ca` | Path to the CA file tokens are verified against. Empty means the `my_ca_certificate` system value, which every node in this deployment already sets, so this is normally left alone. |
-| `tsa_policy` | Optional policy OID to ask the authority for. |
-| `tsa_pins` | The authorities this node accepts, and when. See below. Managed with `occ markdown_notes:tsa-pins`. |
+**A config file**, which is where an operator should put them: one block in any
+`config/*.config.php`, read on every request, editable in an editor and
+revertible like any text.
+
+```php
+'markdown_notes_tsa' => [
+    'url'    => 'https://example.org/tsa/',
+    'ca'     => '',          // empty: use my_ca_certificate
+    'policy' => '',
+    'pins'   => [
+        ['fingerprint' => '4EBC…', 'from' => '2026-09-20', 'until' => '', 'note' => 'the authority we run'],
+    ],
+],
+```
+
+**App configuration**, the `oc_appconfig` table with `appid` = `markdown_notes`,
+used for whatever the block does not mention. This is the path for a container
+built by a script.
+
+| Key in the block | App-config key | Meaning |
+|------|-----|---------|
+| `url` | `tsa_url` | The authority's RFC 3161 endpoint. Empty (the default) hides the feature. |
+| `ca` | `tsa_ca` | CA file that tokens are verified against. Empty means the `my_ca_certificate` system value, which every node in this deployment already sets, so this is normally left alone. |
+| `policy` | `tsa_policy` | Optional policy OID to ask the authority for. |
+| `pins` | `tsa_pins` (JSON) | The authorities this node accepts, and when. See below. |
 
 ```
 occ config:app:set markdown_notes tsa_url --value https://example.org/tsa/
 ```
+
+Either way the setting is per node, so it has to be made on each.
 
 ## Accepted authorities (`tsa_pins`)
 
@@ -71,8 +90,8 @@ Chain validation answers one question: did our certificate authority vouch for
 whoever signed this token. It does not answer the other: is that the authority
 we actually run, during a period we still trust it.
 
-`tsa_pins` answers the second. Its value is a **JSON array**, stored in that one
-app-config row:
+`pins` answers the second. In the config file it is a PHP array; in app
+configuration the same thing as a JSON array in one row:
 
 ```json
 [
@@ -84,6 +103,9 @@ app-config row:
   }
 ]
 ```
+
+A `pins` key in the config file wins outright, even when empty. `occ
+markdown_notes:tsa-pins` says which of the two is in force.
 
 | Field | Meaning |
 |-------|---------|
@@ -123,8 +145,11 @@ stripped before comparison.
 
 ## The command
 
-`occ markdown_notes:tsa-pins` reads and writes **only** the `tsa_pins` app-config
-value described above. It touches no file. With no options it prints the list.
+`occ markdown_notes:tsa-pins` computes fingerprints and prints the list. By
+default it **changes nothing**: given an authority to add, it prints the block to
+paste into the config file, because a trust setting should be reviewed and saved
+by a person. With `--write` it stores the list in the `tsa_pins` app-config row
+instead. It never edits a file.
 
 | Option | Effect |
 |--------|--------|
@@ -133,7 +158,8 @@ value described above. It touches no file. With no options it prints the list.
 | `--from <YYYY-MM-DD>` | Accept tokens dated on or after this day. |
 | `--until <YYYY-MM-DD>` | Accept tokens dated on or before this day, inclusive. |
 | `--note <text>` | Free text kept with the entry. |
-| `--remove <sha256>` | Drop the entry with that fingerprint. |
+| `--remove <sha256>` | Drop the entry with that fingerprint, from app configuration. To remove one from the config file, delete the line. |
+| `--write` | Store the result in app configuration instead of printing it. |
 
 `--fingerprint` exists for three situations `--add` does not cover: you were
 given a digest rather than a file, for instance by whoever runs the authority; a
@@ -196,4 +222,6 @@ openssl pkcs7 -inform DER -in x.tk -print_certs
 ```
 
 The authority itself, how it is stood up and the record it keeps of everything
-it has issued, are documented with the service rather than with this app.
+it has issued, are documented with the service rather than with this app. On a
+ScienceData node that is
+`/usr/local/share/doc/sciencedata/timestamping.md`.
