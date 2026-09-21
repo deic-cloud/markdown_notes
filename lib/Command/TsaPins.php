@@ -122,7 +122,7 @@ class TsaPins extends Command {
 	 * @param list<array{fingerprint: string, from: string, until: string, note: string}> $pins
 	 */
 	private function block(array $pins): string {
-		$lines = ["'markdown_notes_tsa' => [", "\t'pins' => ["];
+		$lines = ["'timestamp_authority' => [", "\t'pins' => ["];
 		foreach ($pins as $p) {
 			$lines[] = sprintf("\t\t['fingerprint' => '%s', 'from' => '%s', 'until' => '%s', 'note' => '%s'],",
 				$p['fingerprint'], $p['from'], $p['until'], str_replace("'", "\\'", $p['note']));

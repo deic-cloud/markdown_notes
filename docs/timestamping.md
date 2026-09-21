@@ -57,7 +57,7 @@ Two places, in this order.
 revertible like any text.
 
 ```php
-'markdown_notes_tsa' => [
+'timestamp_authority' => [
     'url'    => 'https://example.org/tsa/',
     'ca'     => '',          // empty: use my_ca_certificate
     'policy' => '',

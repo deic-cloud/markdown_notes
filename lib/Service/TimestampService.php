@@ -55,7 +55,7 @@ class TimestampService {
 	 * when it reads right, and can put back if it does not. Trust settings belong
 	 * there rather than behind a command line. The whole feature is one block:
 	 *
-	 *   'markdown_notes_tsa' => [
+	 *   'timestamp_authority' => [
 	 *       'url'    => 'https://sciencedata.dk/tsa/',
 	 *       'ca'     => '',          // empty: use my_ca_certificate
 	 *       'policy' => '',
@@ -69,11 +69,29 @@ class TimestampService {
 	 * built by a script uses.
 	 */
 	private function setting(string $name, string $appKey): string {
-		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
-		if (is_array($block) && isset($block[$name]) && is_string($block[$name]) && trim($block[$name]) !== '') {
+		$block = $this->systemBlock();
+		if (isset($block[$name]) && is_string($block[$name]) && trim($block[$name]) !== '') {
 			return trim($block[$name]);
 		}
 		return trim($this->appConfig->getValueString('markdown_notes', $appKey, ''));
+	}
+
+	/**
+	 * The deployment's timestamping block. Named for what it is, not for this
+	 * app: the authority is a plain RFC 3161 service that knows nothing about
+	 * Nextcloud, and which authorities a node trusts is a property of the node.
+	 * The PDF signer is the next thing that will want to read the same list.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function systemBlock(): array {
+		foreach (['timestamp_authority', 'markdown_notes_tsa'] as $key) {
+			$block = $this->config->getSystemValue($key, []);
+			if (is_array($block) && $block !== []) {
+				return $block;
+			}
+		}
+		return [];
 	}
 
 	/** The timestamp authority this node talks to; '' hides the feature. */
@@ -106,8 +124,8 @@ class TimestampService {
 	 * @return list<array{fingerprint: string, from: string, until: string, note: string}>
 	 */
 	public function pins(): array {
-		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
-		if (is_array($block) && isset($block['pins']) && is_array($block['pins'])) {
+		$block = $this->systemBlock();
+		if (isset($block['pins']) && is_array($block['pins'])) {
 			return $this->cleanPins($block['pins']);
 		}
 		$raw = trim($this->appConfig->getValueString('markdown_notes', 'tsa_pins', ''));
@@ -125,9 +143,9 @@ class TimestampService {
 
 	/** Where the pin list is being read from, for the command to report. */
 	public function pinsSource(): string {
-		$block = $this->config->getSystemValue('markdown_notes_tsa', []);
-		if (is_array($block) && isset($block['pins']) && is_array($block['pins'])) {
-			return 'config file (markdown_notes_tsa.pins)';
+		$block = $this->systemBlock();
+		if (isset($block['pins']) && is_array($block['pins'])) {
+			return 'config file (timestamp_authority.pins)';
 		}
 		return 'app configuration (markdown_notes tsa_pins)';
 	}
