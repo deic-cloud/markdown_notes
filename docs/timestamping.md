@@ -50,11 +50,7 @@ it was.
 
 ## Settings
 
-Two places, in this order.
-
-**A config file**, which is where an operator should put them: one block in any
-`config/*.config.php`, read on every request, editable in an editor and
-revertible like any text.
+One block, in one place: any `config/*.config.php`, read on every request.
 
 ```php
 'timestamp_authority' => [
@@ -67,45 +63,28 @@ revertible like any text.
 ],
 ```
 
-**App configuration**, the `oc_appconfig` table with `appid` = `markdown_notes`,
-used for whatever the block does not mention. This is the path for a container
-built by a script.
+| Key | Meaning |
+|-----|---------|
+| `url` | The authority's RFC 3161 endpoint. Empty, or no block at all, hides the feature. |
+| `ca` | CA file that tokens are verified against. Empty means the `my_ca_certificate` system value, which every node in this deployment already sets, so this is normally left alone. |
+| `policy` | Optional policy OID to ask the authority for. |
+| `pins` | The authorities this node accepts, and when. See below. |
 
-| Key in the block | App-config key | Meaning |
-|------|-----|---------|
-| `url` | `tsa_url` | The authority's RFC 3161 endpoint. Empty (the default) hides the feature. |
-| `ca` | `tsa_ca` | CA file that tokens are verified against. Empty means the `my_ca_certificate` system value, which every node in this deployment already sets, so this is normally left alone. |
-| `policy` | `tsa_policy` | Optional policy OID to ask the authority for. |
-| `pins` | `tsa_pins` (JSON) | The authorities this node accepts, and when. See below. |
+There is deliberately no second place. Trust settings belong in a file someone
+edits, reviews and can revert, which is where Nextcloud itself keeps every
+setting of this kind: `trusted_domains`, `trusted_proxies`,
+`allow_local_remote_servers`. Two ways to configure one thing means two places
+to look when it misbehaves, and one of them will be out of date.
 
-```
-occ config:app:set markdown_notes tsa_url --value https://example.org/tsa/
-```
+The block is per node, so it has to be present on each.
 
-Either way the setting is per node, so it has to be made on each.
-
-## Accepted authorities (`tsa_pins`)
+## Accepted authorities (`pins`)
 
 Chain validation answers one question: did our certificate authority vouch for
 whoever signed this token. It does not answer the other: is that the authority
 we actually run, during a period we still trust it.
 
-`pins` answers the second. In the config file it is a PHP array; in app
-configuration the same thing as a JSON array in one row:
-
-```json
-[
-  {
-    "fingerprint": "4EBCF9E6AB9EB5238F8A7E7F055E70E28DEB98A6C9F0039C93FFBC39B5D56907",
-    "from": "2026-09-20",
-    "until": "",
-    "note": "authority on the silo2 pod, issued 2026-09-20"
-  }
-]
-```
-
-A `pins` key in the config file wins outright, even when empty. `occ
-markdown_notes:tsa-pins` says which of the two is in force.
+`pins` answers the second. Each entry:
 
 | Field | Meaning |
 |-------|---------|
@@ -145,11 +124,9 @@ stripped before comparison.
 
 ## The command
 
-`occ markdown_notes:tsa-pins` computes fingerprints and prints the list. By
-default it **changes nothing**: given an authority to add, it prints the block to
-paste into the config file, because a trust setting should be reviewed and saved
-by a person. With `--write` it stores the list in the `tsa_pins` app-config row
-instead. It never edits a file.
+`occ markdown_notes:tsa-pins` shows what is in force and works out fingerprints.
+It **changes nothing, ever**: given an authority to add, it prints the block to
+paste. The command exists to save reading a digest off a certificate by hand.
 
 | Option | Effect |
 |--------|--------|
@@ -158,16 +135,17 @@ instead. It never edits a file.
 | `--from <YYYY-MM-DD>` | Accept tokens dated on or after this day. |
 | `--until <YYYY-MM-DD>` | Accept tokens dated on or before this day, inclusive. |
 | `--note <text>` | Free text kept with the entry. |
-| `--remove <sha256>` | Drop the entry with that fingerprint, from app configuration. To remove one from the config file, delete the line. |
-| `--write` | Store the result in app configuration instead of printing it. |
 
-`--fingerprint` exists for three situations `--add` does not cover: you were
+To remove an authority, delete its line from the block. To retire one, give it an
+`until` date instead.
+
+`--fingerprint` covers three situations `--add` does not: you were
 given a digest rather than a file, for instance by whoever runs the authority; a
 token carries more than one certificate and you want a particular one, since
 `--add` takes the signer and prints the rest; or you are changing the dates on an
 entry that already exists and have no copy of the certificate to hand. Adding a
 fingerprint that is already listed replaces that entry rather than duplicating
-it, which is how an authority gets retired:
+it in the printed block, which is how an authority gets retired:
 
 ```
 occ markdown_notes:tsa-pins --fingerprint 4EBC… --until 2026-09-19 --note "key compromised, discovered 20 Sep"
@@ -193,7 +171,7 @@ and must not be confused.
 |-------|---------|
 | Token verified | Chains to the CA, and the signer is accepted for that date. |
 | Token verified as of its own time | As above, but the authority's certificate has expired since. OpenSSL builds the chain as of now, so without this every token would fail the day the certificate expired. Verified again at the time the token carries. |
-| Not from an accepted authority | Chains to the CA, but the signer is not in `tsa_pins`. The signer's subject is named. |
+| Not from an accepted authority | Chains to the CA, but the signer is not in `pins`. The signer's subject is named. |
 | Dated outside the accepted period | The signer is listed, but this token is dated outside its window. |
 | Token does NOT verify | The signature does not check out. The reason from openssl is shown. |
 | Token not checked | No CA file on this server, so nothing to check against. |

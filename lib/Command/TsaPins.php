@@ -13,20 +13,13 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * occ markdown_notes:tsa-pins
  *
- * The list of timestamp authorities this server accepts, and the window each is
- * accepted for. With no options it prints the list.
+ * Shows which timestamp authorities this node accepts, and works out the
+ * fingerprint of one so it can be added.
  *
- *   --add <file>            a PEM certificate, or a token (.tsr) to read the
- *                           authority's certificate out of
- *   --fingerprint <sha256>  add by digest instead, in any spelling
- *   --from / --until        YYYY-MM-DD, both optional; --until is inclusive
- *   --note                  free text, e.g. why this entry exists
- *   --remove <sha256>       drop an entry
- *
- * An empty list accepts any token that chains to the CA. Removing an entry is
- * how an authority is withdrawn: this CA publishes no revocation list, because
- * a list is signed by the CA and so is worthless exactly when the CA key is the
- * thing that leaked.
+ * It changes nothing, ever. The list lives in the `timestamp_authority` block
+ * of a config file, which is edited, reviewed and saved by a person; this
+ * command's job is to save them reading a digest off a certificate by hand and
+ * to print a block in the right shape.
  */
 class TsaPins extends Command {
 	public function __construct(
@@ -37,33 +30,17 @@ class TsaPins extends Command {
 
 	protected function configure(): void {
 		$this->setName('markdown_notes:tsa-pins')
-			->setDescription('List, add or remove the timestamp authorities this server accepts.')
+			->setDescription('Show the timestamp authorities this node accepts, or work out a fingerprint to add.')
 			->addOption('add', null, InputOption::VALUE_REQUIRED,
 				'PEM certificate file, or a .tsr token to take the authority certificate from')
-			->addOption('fingerprint', null, InputOption::VALUE_REQUIRED, 'SHA-256 fingerprint to add')
+			->addOption('fingerprint', null, InputOption::VALUE_REQUIRED, 'SHA-256 fingerprint to put in the block')
 			->addOption('from', null, InputOption::VALUE_REQUIRED, 'Accept tokens dated on or after (YYYY-MM-DD)')
 			->addOption('until', null, InputOption::VALUE_REQUIRED, 'Accept tokens dated on or before (YYYY-MM-DD)')
-			->addOption('note', null, InputOption::VALUE_REQUIRED, 'Free text kept with the entry')
-			->addOption('remove', null, InputOption::VALUE_REQUIRED, 'SHA-256 fingerprint to remove')
-			->addOption('write', null, InputOption::VALUE_NONE,
-				'Store the result in app configuration instead of printing it for the config file');
+			->addOption('note', null, InputOption::VALUE_REQUIRED, 'Free text kept with the entry');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int {
 		$pins = $this->timestamps->pins();
-
-		$remove = (string)($input->getOption('remove') ?? '');
-		if ($remove !== '') {
-			$target = TimestampService::normalizeFingerprint($remove);
-			$kept = array_values(array_filter($pins, static fn ($p) => $p['fingerprint'] !== $target));
-			if (count($kept) === count($pins)) {
-				$output->writeln('<error>No entry with that fingerprint.</error>');
-				return 1;
-			}
-			$this->timestamps->setPins($kept);
-			$output->writeln('Removed ' . $target . '.');
-			$pins = $kept;
-		}
 
 		$add = (string)($input->getOption('add') ?? '');
 		$fp  = TimestampService::normalizeFingerprint((string)($input->getOption('fingerprint') ?? ''));
@@ -74,38 +51,29 @@ class TsaPins extends Command {
 			}
 			$fp = $found;
 		}
+
 		if ($fp !== '') {
 			$from  = $this->date((string)($input->getOption('from') ?? ''), $output);
 			$until = $this->date((string)($input->getOption('until') ?? ''), $output);
 			if ($from === null || $until === null) {
 				return 1;
 			}
-			$pins = array_values(array_filter($pins, static fn ($p) => $p['fingerprint'] !== $fp));
-			$pins[] = ['fingerprint' => $fp, 'from' => $from, 'until' => $until,
+			$proposed = array_values(array_filter($pins, static fn ($p) => $p['fingerprint'] !== $fp));
+			$proposed[] = ['fingerprint' => $fp, 'from' => $from, 'until' => $until,
 				'note' => (string)($input->getOption('note') ?? '')];
-			if ($input->getOption('write')) {
-				$this->timestamps->setPins($pins);
-				$output->writeln('Stored in app configuration. Accepting ' . $fp
-					. ($from !== '' ? ' from ' . $from : '')
-					. ($until !== '' ? ' until ' . $until : '') . '.');
-			} else {
-				// Trust settings belong in a file someone reviewed and saved, not in
-				// whatever a command happened to write, so the default is to hand the
-				// block over rather than to change anything.
-				$output->writeln('Nothing was changed. Put this in config/sciencedata.config.php '
-					. '(or pass --write to store it in app configuration instead):');
-				$output->writeln('');
-				$output->writeln($this->block($pins));
-				return 0;
-			}
-		}
-
-		$output->writeln('Read from: ' . $this->timestamps->pinsSource());
-		if ($pins === []) {
-			$output->writeln('No authority is pinned: any token that chains to the CA is accepted.');
+			$output->writeln('Nothing has been changed. Put this in the config file, '
+				. 'e.g. config/sciencedata.config.php:');
+			$output->writeln('');
+			$output->writeln($this->block($proposed));
 			return 0;
 		}
-		$output->writeln('Accepted timestamp authorities:');
+
+		if ($pins === []) {
+			$output->writeln('No authority is pinned: any token that chains to the CA is accepted.');
+			$output->writeln('The list is the "pins" key of the timestamp_authority block in a config file.');
+			return 0;
+		}
+		$output->writeln('Accepted timestamp authorities (timestamp_authority.pins):');
 		foreach ($pins as $p) {
 			$output->writeln(sprintf('  %s  %s .. %s  %s', $p['fingerprint'],
 				$p['from'] !== '' ? $p['from'] : 'always',
@@ -116,8 +84,7 @@ class TsaPins extends Command {
 	}
 
 	/**
-	 * The whole list as a block to paste into a config file. Printed, never
-	 * written: a text file is edited, reviewed and saved by a person.
+	 * The whole list as a block to paste. Printed, never written.
 	 *
 	 * @param list<array{fingerprint: string, from: string, until: string, note: string}> $pins
 	 */

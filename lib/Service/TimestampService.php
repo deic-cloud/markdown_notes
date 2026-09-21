@@ -8,7 +8,6 @@ use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\Files\Node;
 use OCP\Http\Client\IClientService;
-use OCP\IAppConfig;
 use OCP\IConfig;
 use OCP\ITempManager;
 use Psr\Log\LoggerInterface;
@@ -40,7 +39,6 @@ class TimestampService {
 	public function __construct(
 		private NotesService    $notes,
 		private IClientService  $clients,
-		private IAppConfig      $appConfig,
 		private IConfig         $config,
 		private ITempManager    $temp,
 		private LoggerInterface $logger,
@@ -48,12 +46,14 @@ class TimestampService {
 	}
 
 	/**
-	 * Settings come from a plain text file first, and from the database second.
+	 * Settings come from the config file. There is no second place.
 	 *
-	 * A deployment keeps its own settings in config/*.config.php beside
-	 * `my_ca_certificate`, which is a file an operator edits in an editor, saves
-	 * when it reads right, and can put back if it does not. Trust settings belong
-	 * there rather than behind a command line. The whole feature is one block:
+	 * Trust settings belong in a file someone edits, reviews, saves and can put
+	 * back, and Nextcloud itself keeps every setting of that kind in config.php
+	 * rather than in the database: trusted_domains, trusted_proxies,
+	 * allow_local_remote_servers. Two ways to configure one thing is two places
+	 * to look when it behaves unexpectedly, and one of them will be wrong.
+	 * The whole feature is one block:
 	 *
 	 *   'timestamp_authority' => [
 	 *       'url'    => 'https://sciencedata.dk/tsa/',
@@ -63,17 +63,10 @@ class TimestampService {
 	 *           ['fingerprint' => '4EBC…', 'from' => '2026-09-20', 'until' => '', 'note' => '…'],
 	 *       ],
 	 *   ],
-	 *
-	 * Anything the block does not mention falls back to app configuration
-	 * (`occ config:app:set markdown_notes tsa_url …`), which is what a container
-	 * built by a script uses.
 	 */
-	private function setting(string $name, string $appKey): string {
+	private function setting(string $name): string {
 		$block = $this->systemBlock();
-		if (isset($block[$name]) && is_string($block[$name]) && trim($block[$name]) !== '') {
-			return trim($block[$name]);
-		}
-		return trim($this->appConfig->getValueString('markdown_notes', $appKey, ''));
+		return isset($block[$name]) && is_string($block[$name]) ? trim($block[$name]) : '';
 	}
 
 	/**
@@ -85,18 +78,13 @@ class TimestampService {
 	 * @return array<string, mixed>
 	 */
 	private function systemBlock(): array {
-		foreach (['timestamp_authority', 'markdown_notes_tsa'] as $key) {
-			$block = $this->config->getSystemValue($key, []);
-			if (is_array($block) && $block !== []) {
-				return $block;
-			}
-		}
-		return [];
+		$block = $this->config->getSystemValue('timestamp_authority', []);
+		return is_array($block) ? $block : [];
 	}
 
 	/** The timestamp authority this node talks to; '' hides the feature. */
 	public function tsaUrl(): string {
-		return $this->setting('url', 'tsa_url');
+		return $this->setting('url');
 	}
 
 	public function isConfigured(): bool {
@@ -125,29 +113,7 @@ class TimestampService {
 	 */
 	public function pins(): array {
 		$block = $this->systemBlock();
-		if (isset($block['pins']) && is_array($block['pins'])) {
-			return $this->cleanPins($block['pins']);
-		}
-		$raw = trim($this->appConfig->getValueString('markdown_notes', 'tsa_pins', ''));
-		if ($raw === '') {
-			return [];
-		}
-		$decoded = json_decode($raw, true);
-		if (!is_array($decoded)) {
-			$this->logger->error('markdown_notes: tsa_pins is not valid JSON; no token will be accepted',
-				['app' => 'markdown_notes']);
-			return [['fingerprint' => 'unreadable', 'from' => '', 'until' => '', 'note' => 'unreadable']];
-		}
-		return $this->cleanPins($decoded);
-	}
-
-	/** Where the pin list is being read from, for the command to report. */
-	public function pinsSource(): string {
-		$block = $this->systemBlock();
-		if (isset($block['pins']) && is_array($block['pins'])) {
-			return 'config file (timestamp_authority.pins)';
-		}
-		return 'app configuration (markdown_notes tsa_pins)';
+		return isset($block['pins']) && is_array($block['pins']) ? $this->cleanPins($block['pins']) : [];
 	}
 
 	/**
@@ -170,12 +136,6 @@ class TimestampService {
 		return $out;
 	}
 
-	/** @param list<array{fingerprint: string, from: string, until: string, note: string}> $pins */
-	public function setPins(array $pins): void {
-		$this->appConfig->setValueString('markdown_notes', 'tsa_pins',
-			json_encode(array_values($pins), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '[]');
-	}
-
 	/** Colons, case and whitespace differ between tools; the digest does not. */
 	public static function normalizeFingerprint(string $fp): string {
 		return strtoupper((string)preg_replace('/[^0-9A-Fa-f]/', '', $fp));
@@ -186,7 +146,7 @@ class TimestampService {
 	 * its certificates from — every node sets `my_ca_certificate`.
 	 */
 	private function caFile(): string {
-		$ca = $this->setting('ca', 'tsa_ca');
+		$ca = $this->setting('ca');
 		if ($ca === '') {
 			$ca = $this->config->getSystemValueString('my_ca_certificate', '');
 		}
@@ -626,7 +586,7 @@ class TimestampService {
 
 	/** @return list<string> */
 	private function policyArgs(): array {
-		$policy = $this->setting('policy', 'tsa_policy');
+		$policy = $this->setting('policy');
 		return $policy === '' ? [] : ['-policy', $policy];
 	}
 
