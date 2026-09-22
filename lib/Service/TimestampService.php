@@ -240,11 +240,15 @@ class TimestampService {
 			// the URL is app configuration, set by an administrator, never by a user.
 			'nextcloud' => ['allow_local_address' => true],
 		];
-		// Our own authority presents a certificate from our own CA, which is not
-		// in the system trust store on every node.
-		$ca = $this->caFile();
-		if ($ca !== '' && str_starts_with($url, 'https://')) {
-			$options['verify'] = $ca;
+		// Verifying the AUTHORITY'S SERVER certificate is a different question
+		// from verifying the tokens it signs, and conflating them was a bug: the
+		// authority is published behind the site's ordinary public certificate,
+		// which our own CA knows nothing about. Default verification therefore
+		// applies, unless 'tls_ca' names a bundle — for an authority published
+		// behind a private CA.
+		$tlsCa = $this->setting('tls_ca');
+		if ($tlsCa !== '' && is_readable($tlsCa) && str_starts_with($url, 'https://')) {
+			$options['verify'] = $tlsCa;
 		}
 		try {
 			$response = $this->clients->newClient()->post($url, $options);
