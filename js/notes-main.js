@@ -643,7 +643,7 @@
 			}).join('') +
 			(hasTodo
 				? th('due', t('markdown_notes', 'Due'))
-				+ th('status', t('markdown_notes', 'Status'), true, !!(state.colFilters.status && state.colFilters.status.length))
+				+ th('status', t('markdown_notes', 'To-do'), true, !!(state.colFilters.status && state.colFilters.status.length))
 				: '') + '</tr>';
 		table.innerHTML = '<thead>' + head + '</thead>';
 		var tbody = document.createElement('tbody');

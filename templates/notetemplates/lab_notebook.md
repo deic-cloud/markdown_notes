@@ -7,6 +7,9 @@ project:
 date:
   label: Date
   type: date
+status:
+  label: Status
+  type: dropdown(planned, running, done)
 ---
 #### {{project}} — {{date}}
 
