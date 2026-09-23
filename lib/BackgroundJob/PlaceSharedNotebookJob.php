@@ -7,6 +7,7 @@ namespace OCA\MarkdownNotes\BackgroundJob;
 use OCA\MarkdownNotes\Service\JoplinSyncService;
 use OCA\MarkdownNotes\Service\NotesService;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\BackgroundJob\IJobList;
 use OCP\BackgroundJob\QueuedJob;
 use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
@@ -36,12 +37,16 @@ class PlaceSharedNotebookJob extends QueuedJob {
 		private IRootFolder       $rootFolder,
 		private IUserManager      $userManager,
 		private IUserSession      $userSession,
+		private IJobList          $jobList,
 		private LoggerInterface   $logger,
 	) {
 		parent::__construct($time);
 	}
 
-	/** @param array{uid?: string, mountPoint?: string} $argument */
+	/** A failed placement is tried again on later cron runs, this many times in all. */
+	private const ATTEMPTS = 3;
+
+	/** @param array{uid?: string, mountPoint?: string, attempt?: int} $argument */
 	protected function run($argument): void {
 		$uid   = (string)($argument['uid'] ?? '');
 		$mount = trim((string)($argument['mountPoint'] ?? ''), '/');
@@ -85,8 +90,18 @@ class PlaceSharedNotebookJob extends QueuedJob {
 			// Their Joplin only sees what their index holds.
 			$this->sync->rebuildIndex($uid);
 		} catch (\Throwable $e) {
+			// Seen once, 2026-09-23, and not reproducible since: a placement failed
+			// with "getUID() on null" in the cron run right after a deploy. A queued
+			// job is removed once it has run, so without this the notebook would stay
+			// where the share landed for good. Try again on a later run instead.
+			$attempt = (int)($argument['attempt'] ?? 1);
+			$again = $attempt < self::ATTEMPTS;
 			$this->logger->warning('markdown_notes: could not place the shared notebook ' . $mount . ' for '
-				. $uid . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+				. $uid . ' (attempt ' . $attempt . ' of ' . self::ATTEMPTS . ($again ? ', will retry' : ', giving up')
+				. '): ' . $e->getMessage(), ['app' => 'markdown_notes', 'exception' => $e]);
+			if ($again) {
+				$this->jobList->add(self::class, ['uid' => $uid, 'mountPoint' => $mount, 'attempt' => $attempt + 1]);
+			}
 		} finally {
 			$this->userSession->setUser($previous);
 		}
