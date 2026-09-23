@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace OCA\MarkdownNotes\BackgroundJob;
 
 use OCA\MarkdownNotes\Service\JoplinSyncService;
-use OCA\MarkdownNotes\Service\NotesService;
+use OCA\MarkdownNotes\Service\NotebookPlacer;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\IJobList;
 use OCP\BackgroundJob\QueuedJob;
-use OCP\Files\Folder;
-use OCP\Files\IRootFolder;
-use OCP\IUserManager;
-use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -32,11 +28,8 @@ use Psr\Log\LoggerInterface;
 class PlaceSharedNotebookJob extends QueuedJob {
 	public function __construct(
 		ITimeFactory $time,
-		private NotesService      $notesService,
+		private NotebookPlacer    $placer,
 		private JoplinSyncService $sync,
-		private IRootFolder       $rootFolder,
-		private IUserManager      $userManager,
-		private IUserSession      $userSession,
 		private IJobList          $jobList,
 		private LoggerInterface   $logger,
 	) {
@@ -53,42 +46,11 @@ class PlaceSharedNotebookJob extends QueuedJob {
 		if ($uid === '' || $mount === '') {
 			return;
 		}
-		// Moving a federated mount goes through core's external-share manager,
-		// which identifies the owner from the SESSION user — absent in a job, where
-		// it fails with "getUID() on null". So act as the user for the duration.
-		$previous = $this->userSession->getUser();
-		$user = $this->userManager->get($uid);
-		if ($user === null) {
-			return;
-		}
-		$this->userSession->setUser($user);
 		try {
-			\OC_Util::setupFS($uid);
-			$userFolder = $this->rootFolder->getUserFolder($uid);
-			if (!$userFolder->nodeExists($mount)) {
-				return; // moved, declined or gone again
+			if ($this->placer->place($uid, $mount) === NotebookPlacer::MOVED) {
+				// Their Joplin only sees what their index holds.
+				$this->sync->rebuildIndex($uid);
 			}
-			$node = $userFolder->get($mount);
-			if (!($node instanceof Folder) || !$this->notesService->looksLikeNotebook($node)) {
-				return;
-			}
-			$notesName = $this->notesService->notesFolderName($uid);
-			if (str_starts_with($mount . '/', $notesName . '/')) {
-				return; // already inside the notes folder
-			}
-			if (!$userFolder->nodeExists($notesName)) {
-				$userFolder->newFolder($notesName);
-			}
-			$base = $node->getName();
-			$target = $notesName . '/' . $base;
-			for ($i = 2; $userFolder->nodeExists($target) && $i < 50; $i++) {
-				$target = $notesName . '/' . $base . ' (' . $i . ')';
-			}
-			$node->move($userFolder->getPath() . '/' . $target);
-			$this->logger->info('markdown_notes: placed the shared notebook ' . $mount . ' at ' . $target
-				. ' for ' . $uid, ['app' => 'markdown_notes']);
-			// Their Joplin only sees what their index holds.
-			$this->sync->rebuildIndex($uid);
 		} catch (\Throwable $e) {
 			// Seen once, 2026-09-23, and not reproducible since: a placement failed
 			// with "getUID() on null" in the cron run right after a deploy. A queued
@@ -102,8 +64,6 @@ class PlaceSharedNotebookJob extends QueuedJob {
 			if ($again) {
 				$this->jobList->add(self::class, ['uid' => $uid, 'mountPoint' => $mount, 'attempt' => $attempt + 1]);
 			}
-		} finally {
-			$this->userSession->setUser($previous);
 		}
 	}
 }
