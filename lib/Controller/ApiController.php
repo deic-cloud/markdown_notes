@@ -99,7 +99,7 @@ class ApiController extends OCSController {
 					unset($c);
 					if ($columns !== []) {
 						foreach ($notes as &$n) {
-							$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId']);
+							$n['cols'] = $this->metaBridge->valuesFor((int)$n['fileid'], $cols['tagId'], $this->uid());
 						}
 						unset($n);
 					}

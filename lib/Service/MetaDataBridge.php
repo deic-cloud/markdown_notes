@@ -64,16 +64,24 @@ class MetaDataBridge {
 	/**
 	 * A file's metadata values for a tag, as keyId(string) => value.
 	 *
+	 * Values live on the node of the file's OWNER. For a note in a notebook
+	 * shared from another node there is nothing here, so ask meta_data to read
+	 * them through from the owner's node (translated to this node's key ids).
+	 *
 	 * @return array<string,string>
 	 */
-	public function valuesFor(int $fileId, int $tagId): array {
+	public function valuesFor(int $fileId, int $tagId, string $uid = ''): array {
 		$ts = $this->service();
 		if ($ts === null) {
 			return [];
 		}
 		try {
+			$rows = $ts->getFileKeys($fileId, $tagId);
+			if ($rows === [] && $uid !== '' && method_exists($ts, 'getRemoteFileKeys')) {
+				$rows = $ts->getRemoteFileKeys($fileId, $uid, $tagId) ?? [];
+			}
 			$out = [];
-			foreach ($ts->getFileKeys($fileId, $tagId) as $row) {
+			foreach ($rows as $row) {
 				$out[(string)$row['keyid']] = (string)$row['value'];
 			}
 			return $out;
