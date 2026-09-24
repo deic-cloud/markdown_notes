@@ -988,18 +988,42 @@ class NotesService {
 
 	// ── Templates ───────────────────────────────────────────────────────────
 
-	/** Seed the bundled templates into a visible Templates/ folder, once. */
+	/**
+	 * Seed the bundled templates into a visible Templates/ folder, each ONCE per
+	 * user: the templates are the user's from then on, so one they delete stays
+	 * deleted, and one they edit is never overwritten. A template added to the
+	 * bundle later is still seeded. The names already given are remembered in
+	 * the user's config (`seeded_templates`); for a user from before that was
+	 * kept, whatever is in the folder counts as given.
+	 */
 	public function ensureTemplates(string $uid): void {
 		$notes = $this->notesFolder($uid);
 		$dir = $notes->nodeExists('Templates') && $notes->get('Templates') instanceof Folder
 			? $notes->get('Templates')
 			: $notes->newFolder('Templates');
+		$raw = $this->config->getUserValue($uid, 'markdown_notes', 'seeded_templates', '');
+		$seeded = $raw === '' ? null : (json_decode($raw, true) ?: []);
+		if ($seeded === null) {
+			$seeded = [];
+			foreach ($dir->getDirectoryListing() as $n) {
+				$seeded[] = $n->getName();
+			}
+		}
 		$bundled = __DIR__ . '/../../templates/notetemplates';
+		$changed = $raw === '';
 		foreach (glob($bundled . '/*.md') ?: [] as $path) {
 			$name = basename($path);
+			if (in_array($name, $seeded, true)) {
+				continue;
+			}
 			if (!$dir->nodeExists($name)) {
 				$dir->newFile($name, (string)file_get_contents($path));
 			}
+			$seeded[] = $name;
+			$changed = true;
+		}
+		if ($changed) {
+			$this->config->setUserValue($uid, 'markdown_notes', 'seeded_templates', json_encode(array_values(array_unique($seeded))));
 		}
 	}
 
