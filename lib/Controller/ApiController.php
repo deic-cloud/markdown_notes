@@ -149,7 +149,7 @@ class ApiController extends OCSController {
 					foreach ($note['tags'] as $tagName) {
 						$keyId = $this->metaBridge->keyId($tagName, $v['name']);
 						if ($keyId !== null) {
-							$this->metaBridge->setValue($tagName, (int)$note['fileid'], $keyId, (string)$varsArr[$v['name']]);
+							$this->metaBridge->setValue($tagName, (int)$note['fileid'], $keyId, (string)$varsArr[$v['name']], $this->uid());
 						}
 					}
 				}
@@ -184,8 +184,11 @@ class ApiController extends OCSController {
 	public function setMeta(string $path, string $tag, int $keyId, string $value = ''): DataResponse {
 		return $this->run(function () use ($path, $tag, $keyId, $value) {
 			$note = $this->notesService->getNote($this->uid(), $path); // resolves fileid
-			$ok = $this->metaBridge->setValue($tag, (int)$note['fileid'], $keyId, $value);
-			return ['ok' => $ok];
+			$why = $this->metaBridge->setValue($tag, (int)$note['fileid'], $keyId, $value, $this->uid());
+			if ($why !== null) {
+				throw new NotesException($why);
+			}
+			return ['ok' => true];
 		});
 	}
 

@@ -76,10 +76,10 @@ class MetaDataBridge {
 			return [];
 		}
 		try {
-			$rows = $ts->getFileKeys($fileId, $tagId);
-			if ($rows === [] && $uid !== '' && method_exists($ts, 'getRemoteFileKeys')) {
-				$rows = $ts->getRemoteFileKeys($fileId, $uid, $tagId) ?? [];
-			}
+			// For a note shared from another node the owner's node holds the values.
+			$rows = ($uid !== '' && method_exists($ts, 'getFileKeysFor'))
+				? $ts->getFileKeysFor($fileId, $tagId, $uid)
+				: $ts->getFileKeys($fileId, $tagId);
 			$out = [];
 			foreach ($rows as $row) {
 				$out[(string)$row['keyid']] = (string)$row['value'];
@@ -118,21 +118,24 @@ class MetaDataBridge {
 		}
 	}
 
-	public function setValue(string $tagName, int $fileId, int $keyId, string $value): bool {
+	/** @return string|null null when stored; otherwise why not (for the user) */
+	public function setValue(string $tagName, int $fileId, int $keyId, string $value, string $uid = ''): ?string {
 		$ts = $this->service();
 		if ($ts === null) {
-			return false;
+			return 'The Metadata app is not available';
 		}
 		try {
 			$tagId = $ts->getTagIdByName($tagName);
 			if (!$tagId) {
-				return false;
+				return 'Unknown tag ' . $tagName;
 			}
-			$ts->updateFileKey($fileId, (int)$tagId, $keyId, $value);
-			return true;
+			// $uid lets meta_data write a note shared from another node on its
+			// owner's node (write-through), where everyone reads it.
+			$ts->updateFileKey($fileId, (int)$tagId, $keyId, $value, $uid);
+			return null;
 		} catch (\Throwable $e) {
 			$this->logger->warning('markdown_notes: meta_data setValue failed: ' . $e->getMessage(), ['app' => 'markdown_notes']);
-			return false;
+			return $e instanceof \RuntimeException ? $e->getMessage() : 'The value could not be saved';
 		}
 	}
 
