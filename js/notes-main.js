@@ -822,6 +822,7 @@
 			toolbar: ['bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list',
 				'|', 'link',
 				{ name: 'image', className: 'fa fa-image', title: t('markdown_notes', 'Insert image'), action: function () { pickImage(); } },
+				{ name: 'filelink', className: 'fa fa-paperclip', title: t('markdown_notes', 'Link to a file or folder'), action: function () { pickFileLink(); } },
 				'table', 'code', '|',
 				{ name: 'viewmode', className: 'fa fa-edit notes-vm', title: t('markdown_notes', 'View: edit / side-by-side / rendered'), action: function () { cycleView(); } },
 				'guide'],
@@ -1112,6 +1113,27 @@
 				}
 			})
 			.catch(showError);
+	}
+
+	// ── Link to a file or folder ─────────────────────────────────────────────
+	// For data, scripts and plots that live outside the notebook (a project
+	// folder). The server builds the link (FileLinkService) so that it opens for
+	// everyone the note is shared with, not just the author.
+	function pickFileLink() {
+		if (!(window.OC && OC.dialogs && OC.dialogs.filepicker)) { return; }
+		OC.dialogs.filepicker(t('markdown_notes', 'Link to a file or folder'), function (path) {
+			if (!path) { return; }
+			get('/filelink', p('path', path)).then(function (j) {
+				if (!mde || !j || !j.link) { return; }
+				var cm = mde.codemirror;
+				var label = cm.getSelection() || String(j.name || path).replace(/([\[\]])/g, '\\$1');
+				cm.replaceSelection('[' + label + '](' + j.link + ')');
+				cm.focus();
+				if (j.personal) {
+					showError(t('markdown_notes', 'This file is in a folder shared with you, so the link opens only for you. For a link that works for others, the owner can insert it from their own copy.'));
+				}
+			}).catch(showError);
+		}, false, undefined, true, (OC.dialogs.FILEPICKER_TYPE_CHOOSE || 1), undefined, { allowDirectoryChooser: true });
 	}
 
 	// ── Sharing a notebook ────────────────────────────────────────────────────

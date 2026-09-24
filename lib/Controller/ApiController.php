@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\MarkdownNotes\Controller;
 
+use OCA\MarkdownNotes\Service\FileLinkService;
 use OCA\MarkdownNotes\Service\MetaDataBridge;
 use OCA\MarkdownNotes\Service\NotesException;
 use OCA\MarkdownNotes\Service\NotesService;
@@ -24,6 +25,7 @@ class ApiController extends OCSController {
 		private SystemTagSync $systemTagSync,
 		private MetaDataBridge $metaBridge,
 		private TimestampService $timestamps,
+		private FileLinkService $fileLinks,
 		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
@@ -311,6 +313,12 @@ class ApiController extends OCSController {
 	#[NoAdminRequired]
 	public function timestamp(string $path): DataResponse {
 		return $this->run(fn () => $this->timestamps->stamp($this->uid(), $path));
+	}
+
+	/** A link to a file or folder of the user's, to insert into a note (FileLinkService). */
+	#[NoAdminRequired]
+	public function fileLink(string $path): DataResponse {
+		return $this->run(fn () => $this->fileLinks->linkFor($this->uid(), $path));
 	}
 
 	#[NoAdminRequired]

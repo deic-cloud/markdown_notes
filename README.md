@@ -79,6 +79,18 @@ sync that the web lacks.
   A user's existing copies in their own `Templates/` folder are untouched.
 * Insert images by picking an existing file from Nextcloud or uploading into
   `attachments/`.
+* **Link to a file or folder** (paperclip button): pick anything in your files —
+  typically the data, scripts and plots of a project folder, which stay where
+  they are — and a markdown link is inserted (the selected text becomes the
+  label). The link opens for everyone the note is shared with, not just you
+  (`Service/FileLinkService`): on a plain server it is Nextcloud's own
+  `/index.php/f/<id>`; on a files_sharding cluster it is that app's cluster
+  link, which sends each reader to their own copy of the file, or tells them it
+  was not shared with them (the notebook and the folder it links are shared
+  separately). A file in something shared *with* you is linked as its owner has
+  it, so the link does not depend on where you keep your copy; only if the
+  owner's server cannot be asked does the link open for you alone, and the
+  editor says so.
 
 ## Sharing a notebook
 
@@ -103,11 +115,15 @@ share to a user on another silo is a federated share: the listener there only
 marks the folder (`.notebook`, hidden, so it travels *with the data* — the
 receiving node cannot ask where a folder came from). When the recipient's silo
 mirrors the share and mounts it, files_sharding raises
-`ExternalShareMountedEvent` and `BackgroundJob/PlaceSharedNotebookJob` checks
-the marker, moves the notebook into that user's notes folder and rebuilds their
-index. Out of band, because reading the mount means a request to the owner's
-node. This also keeps the recipient's own notes-folder name (per-user config on
-their instance) out of the sharing side's business.
+`ExternalShareMountedEvent`; `Listener/ExternalShareMountedListener` checks the
+marker right then, moves the notebook into that user's notes folder
+(`Service/NotebookPlacer`) and queues a reindex, so it is in their Notes within
+seconds. A received share is moved by updating its `share_external` row, not
+through core's external-share manager, which holds the user of the session it
+was built in and has none in a request from another node. If the mount cannot
+be read yet, `BackgroundJob/PlaceSharedNotebookJob` retries (three attempts).
+This also keeps the recipient's own notes-folder name (per-user config on their
+instance) out of the sharing side's business.
 
 ## History of a note
 

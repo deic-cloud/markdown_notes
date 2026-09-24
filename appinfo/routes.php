@@ -46,6 +46,7 @@ return [
 		['name' => 'api#createNotebook', 'url' => '/api/v1/notebook/create', 'verb' => 'POST'],
 		['name' => 'api#deleteNotebook', 'url' => '/api/v1/notebook/delete', 'verb' => 'POST'],
 		['name' => 'api#deleteNotebooks', 'url' => '/api/v1/notebooks/delete', 'verb' => 'POST'],
+		['name' => 'api#fileLink',       'url' => '/api/v1/filelink',        'verb' => 'GET'],
 		['name' => 'api#rename',         'url' => '/api/v1/rename',          'verb' => 'POST'],
 		['name' => 'api#gc',             'url' => '/api/v1/gc',              'verb' => 'POST'],
 		['name' => 'api#timestamps',     'url' => '/api/v1/note/timestamps', 'verb' => 'GET'],
