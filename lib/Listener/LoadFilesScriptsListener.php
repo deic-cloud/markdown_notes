@@ -6,7 +6,10 @@ namespace OCA\MarkdownNotes\Listener;
 
 use OCA\Files\Event\LoadAdditionalScriptsEvent;
 use OCP\EventDispatcher\Event;
+use OCP\AppFramework\Services\IInitialState;
 use OCP\EventDispatcher\IEventListener;
+use OCP\IConfig;
+use OCP\IUserSession;
 use OCP\Util;
 
 /**
@@ -17,6 +20,13 @@ use OCP\Util;
  * @implements IEventListener<LoadAdditionalScriptsEvent>
  */
 class LoadFilesScriptsListener implements IEventListener {
+	public function __construct(
+		private IInitialState $initialState,
+		private IConfig $config,
+		private IUserSession $userSession,
+	) {
+	}
+
 	public function handle(Event $event): void {
 		if (!($event instanceof LoadAdditionalScriptsEvent)) {
 			return;
@@ -27,5 +37,10 @@ class LoadFilesScriptsListener implements IEventListener {
 		Util::addScript('markdown_notes', 'easymde.min');
 		// After the Files app so its action registry exists.
 		Util::addScript('markdown_notes', 'files-editor', 'files');
+		// The editor adds website image classes ({.modal-image .small-image}) to
+		// inserted images — except in notes, where Joplin would show them as text.
+		$uid = $this->userSession->getUser()?->getUID();
+		$dir = $uid === null ? 'Notes' : trim($this->config->getUserValue($uid, 'markdown_notes', 'notesdir', 'Notes'), '/');
+		$this->initialState->provideInitialState('notes_folder', $dir !== '' ? $dir : 'Notes');
 	}
 }

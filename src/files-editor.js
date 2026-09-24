@@ -15,6 +15,7 @@
 import { registerFileAction, DefaultType, Permission } from '@nextcloud/files'
 import { emit } from '@nextcloud/event-bus'
 import { translate as t } from '@nextcloud/l10n'
+import { loadState } from '@nextcloud/initial-state'
 
 const APP = 'markdown_notes'
 const MIMES = ['text/markdown', 'text/x-markdown']
@@ -72,13 +73,22 @@ function relativePath(fromDir, target) {
 	return [...Array(from.length - i).fill('..'), ...to.slice(i)].map(encodeURIComponent).join('/')
 }
 
-function mediaMarkup(name, rel, mime) {
+// Web pages (the Websites app) get the service's image classes, the same in
+// every theme: a sized image that opens full size on click. Notes do not —
+// Joplin and the Notes preview would show the {…} as text.
+let NOTES_DIR = 'Notes'
+try { NOTES_DIR = loadState(APP, 'notes_folder', 'Notes') } catch (e) { /* default */ }
+function isNote(node) {
+	return ('/' + (node.path || '').replace(/^\/+/, '')).startsWith('/' + NOTES_DIR + '/')
+}
+
+function mediaMarkup(name, rel, mime, web) {
 	const ext = (name.split('.').pop() || '').toLowerCase()
 	const kind = (mime || '').startsWith('video/') ? 'video' : (mime || '').startsWith('audio/') ? 'audio' : (EXT_KIND[ext] || 'image')
-	if (kind === 'video') return '<video controls src="' + rel + '"></video>'
+	if (kind === 'video') return '<video controls' + (web ? ' class="medium-image"' : '') + ' src="' + rel + '"></video>'
 	if (kind === 'audio') return '<audio controls src="' + rel + '"></audio>'
 	const alt = name.replace(/\.[^.]*$/, '').replace(/[[\]]/g, '')
-	return '![' + alt + '](' + rel + ')'
+	return '![' + alt + '](' + rel + ')' + (web ? '{.modal-image .small-image}' : '')
 }
 
 function pickMedia(node, insert) {
@@ -86,7 +96,7 @@ function pickMedia(node, insert) {
 	if (!d?.filepicker) return
 	d.filepicker(t(APP, 'Insert image or media'), (path) => {
 		if (!path) return
-		insert(mediaMarkup(path.split('/').pop(), relativePath(dirOf(node.path), path), ''))
+		insert(mediaMarkup(path.split('/').pop(), relativePath(dirOf(node.path), path), '', !isNote(node)))
 	}, false, MEDIA_MIMES, true, d.FILEPICKER_TYPE_CHOOSE || 1, dirOf(node.path) || '/')
 }
 
@@ -112,7 +122,7 @@ function uploadMedia(node, insert, report) {
 				})
 				if (r.status === 412) continue   // taken: try the next name
 				if (!r.ok) throw new Error(t(APP, 'Upload failed') + ' (' + r.status + ')')
-				insert(mediaMarkup(name, encodeURIComponent(name), file.type))
+				insert(mediaMarkup(name, encodeURIComponent(name), file.type, !isNote(node)))
 				report('')
 				return
 			}
