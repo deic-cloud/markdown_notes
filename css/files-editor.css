@@ -1,6 +1,6 @@
 /* Markdown editor opened from the Files app (src/files-editor.js). */
 .mdn-overlay {
-	position: fixed; inset: 0; z-index: 10000;
+	position: fixed; inset: 0; z-index: 9000; /* below Nextcloud dialogs (file picker, ~9998), above the page */
 	background: rgba(0, 0, 0, .45);
 	display: flex; align-items: center; justify-content: center;
 }

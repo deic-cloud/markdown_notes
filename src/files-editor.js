@@ -52,6 +52,78 @@ async function save(node, text, etag) {
 	return r.headers.get('ETag') || ''
 }
 
+// ── Images and media ─────────────────────────────────────────────────────
+// Inserted as links RELATIVE to the Markdown file, which is what a site served
+// by the Websites app (or any Markdown renderer) resolves. Markdown has image
+// syntax only; sound and video go in as HTML elements.
+const MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp', 'image/bmp', 'image/avif',
+	'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav',
+	'audio/webm', 'audio/flac', 'audio/mp4', 'audio/aac']
+const EXT_KIND = { mp4: 'video', m4v: 'video', webm: 'video', ogv: 'video', mov: 'video', mp3: 'audio', ogg: 'audio', oga: 'audio', wav: 'audio', flac: 'audio', m4a: 'audio', aac: 'audio' }
+
+function dirOf(path) { return path.replace(/\/[^/]*$/, '') || '' }
+
+/** Path of $target relative to directory $fromDir (both user-root paths). */
+function relativePath(fromDir, target) {
+	const from = fromDir.split('/').filter(Boolean)
+	const to = target.split('/').filter(Boolean)
+	let i = 0
+	while (i < from.length && i < to.length - 1 && from[i] === to[i]) i++
+	return [...Array(from.length - i).fill('..'), ...to.slice(i)].map(encodeURIComponent).join('/')
+}
+
+function mediaMarkup(name, rel, mime) {
+	const ext = (name.split('.').pop() || '').toLowerCase()
+	const kind = (mime || '').startsWith('video/') ? 'video' : (mime || '').startsWith('audio/') ? 'audio' : (EXT_KIND[ext] || 'image')
+	if (kind === 'video') return '<video controls src="' + rel + '"></video>'
+	if (kind === 'audio') return '<audio controls src="' + rel + '"></audio>'
+	const alt = name.replace(/\.[^.]*$/, '').replace(/[[\]]/g, '')
+	return '![' + alt + '](' + rel + ')'
+}
+
+function pickMedia(node, insert) {
+	const d = window.OC?.dialogs
+	if (!d?.filepicker) return
+	d.filepicker(t(APP, 'Insert image or media'), (path) => {
+		if (!path) return
+		insert(mediaMarkup(path.split('/').pop(), relativePath(dirOf(node.path), path), ''))
+	}, false, MEDIA_MIMES, true, d.FILEPICKER_TYPE_CHOOSE || 1, dirOf(node.path) || '/')
+}
+
+/** Upload next to the Markdown file; an existing name gets " (2)", " (3)", … */
+function uploadMedia(node, insert, report) {
+	const input = document.createElement('input')
+	input.type = 'file'
+	input.accept = 'image/*,video/*,audio/*'
+	input.addEventListener('change', async () => {
+		const file = input.files && input.files[0]
+		if (!file) return
+		const base = node.source.replace(/\/[^/]*$/, '')
+		const clean = file.name.replace(/[\\/]/g, '_')
+		const stem = clean.replace(/(\.[^.]*)?$/, '')
+		const ext = clean.slice(stem.length)
+		report(t(APP, 'Uploading…'))
+		try {
+			for (let n = 1; n < 100; n++) {
+				const name = n === 1 ? clean : stem + ' (' + n + ')' + ext
+				const r = await fetch(base + '/' + encodeURIComponent(name), {
+					method: 'PUT', body: file, credentials: 'same-origin',
+					headers: davHeaders({ 'If-None-Match': '*', 'Content-Type': file.type || 'application/octet-stream' }),
+				})
+				if (r.status === 412) continue   // taken: try the next name
+				if (!r.ok) throw new Error(t(APP, 'Upload failed') + ' (' + r.status + ')')
+				insert(mediaMarkup(name, encodeURIComponent(name), file.type))
+				report('')
+				return
+			}
+			throw new Error(t(APP, 'Upload failed'))
+		} catch (e) {
+			report(e.message, true)
+		}
+	})
+	input.click()
+}
+
 function openEditor(node) {
 	if (typeof window.EasyMDE !== 'function') {
 		window.OC?.dialogs?.alert?.(t(APP, 'The Markdown editor did not load. Please reload the page.'), t(APP, 'Markdown'))
@@ -83,6 +155,17 @@ function openEditor(node) {
 		dirty = d
 		if (canWrite) state.textContent = d ? t(APP, 'unsaved changes') : ''
 		saveBtn.disabled = !d
+	}
+
+	const insert = (markup) => {
+		if (!mde) return
+		const cm = mde.codemirror
+		cm.replaceSelection(markup)
+		cm.focus()
+	}
+	const report = (text, isError) => {
+		msg.textContent = text
+		msg.classList.toggle('mdn-error', !!isError)
 	}
 
 	async function doSave() {
@@ -142,7 +225,10 @@ function openEditor(node) {
 			// what a page finally looks like is decided by where it is served.
 			toolbar: canWrite ? [
 				'bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list', '|',
-				'link', 'table', 'code', '|', 'guide',
+				'link',
+				{ name: 'media', className: 'fa fa-image', title: t(APP, 'Insert image or media from your files'), action: () => pickMedia(node, insert) },
+				{ name: 'upload', className: 'fa fa-upload', title: t(APP, 'Upload an image or media file next to this file'), action: () => uploadMedia(node, insert, report) },
+				'table', 'code', '|', 'guide',
 			] : false,
 		})
 		if (!canWrite) mde.codemirror.setOption('readOnly', true)

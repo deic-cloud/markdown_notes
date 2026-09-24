@@ -244,6 +244,8 @@ AGPL-3.0-or-later.
 
 ## Files integration: the click action for Markdown files
 
+The editor has two buttons for images and media: *Insert image or media from your files* (the file picker, opened in the Markdown file's folder) and *Upload an image or media file next to this file* (uploads beside it; a name already taken gets " (2)", never overwrites). Both insert a link **relative to the Markdown file** — what a site served by the Websites app resolves: `![name](path)` for images, `<video controls src>` / `<audio controls src>` for video and sound. The editor overlay sits at z-index 9000, below Nextcloud's dialogs, so the file picker opens on top of it.
+
 Clicking a `.md` file in the Files app opens it in this app's EasyMDE editor —
 plain Markdown source with light styling, no preview pane — instead of the
 Text app's rich-text editor (`src/files-editor.js` → `js/files-editor.js`,
