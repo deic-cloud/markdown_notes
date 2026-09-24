@@ -22,7 +22,10 @@ class Application extends App implements IBootstrap {
 
 	public function register(IRegistrationContext $context): void {
 		// Tags changed via the Files sidebar / meta_data → mirror into the footer.
-		$context->registerEventListener(MapperEvent::class, SystemTagMapperListener::class);
+		// Core dispatches MapperEvent under these NAMES, not its class name, so a
+		// class-name registration never fires (it silently didn't until 2026-09-24).
+		$context->registerEventListener(MapperEvent::EVENT_ASSIGN, SystemTagMapperListener::class);
+		$context->registerEventListener(MapperEvent::EVENT_UNASSIGN, SystemTagMapperListener::class);
 		// Any write to a note (a sharee on another node, Joplin, WebDAV) → footer tags
 		// re-applied to the owner's systemtags on this, the owner's, node.
 		$context->registerEventListener(\OCP\Files\Events\Node\NodeWrittenEvent::class, \OCA\MarkdownNotes\Listener\NoteWrittenListener::class);
