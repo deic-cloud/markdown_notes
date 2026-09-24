@@ -381,7 +381,7 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 #app-navigation .notes-nb-row .notes-nb-share { margin: 0; margin-inline-start: auto; }
 /* A notebook shared with the user: who shared it, in place of the share control. */
 #app-navigation .notes-nb-row .notes-nb-by { flex: 0 1 auto; min-width: 2.5em; display: inline-flex; align-items: center; gap: 3px; margin-inline-start: auto; padding-inline-start: 6px; color: var(--color-text-maxcontrast); font-size: .85em; overflow: hidden; white-space: nowrap; }
-#app-navigation .notes-nb-row .notes-nb-by svg { flex: 0 0 auto; width: 12px; height: 12px; }
+#app-navigation .notes-nb-row .notes-nb-by svg { flex: 0 0 auto; width: 12px; height: 12px; transform: scaleX(-1); }
 #app-navigation .notes-nb-row .notes-nb-by span { overflow: hidden; text-overflow: ellipsis; }
 .notes-nb-row .notes-nb-share svg { display: block; }
 .notes-nb-row:hover .notes-nb-share, .notes-nb-row .notes-nb-share:focus { opacity: .85; }
