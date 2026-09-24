@@ -94,6 +94,11 @@ sync that the web lacks.
 
 ## Sharing a notebook
 
+A notebook someone shared with you is marked in the left bar with the sharer's
+name (and *Shared with you by …* above its note list), and has no share control:
+notebooks are shared by their owner, not reshared (the tree's `sharedBy`, from
+the share's storage — local or from another server).
+
 The left bar's notebook rows carry a share control (top-level notebooks only —
 a notebook's attachments live at its own root, so sharing a sub-notebook would
 share notes whose images sit outside the share). It opens a small dialog over

@@ -176,6 +176,9 @@
 			state.tagColors = {};
 			vocab.forEach(function (tg) { state.tagColors[tg.name] = tg.color || ''; });
 			state.vocab = vocab.map(function (tg) { return tg.name; });
+			// Top-level notebooks shared with the user → who shared them.
+			state.sharedBy = {};
+			(d.notebooks || []).forEach(function (n) { if (n.sharedBy) { state.sharedBy[n.path] = n.sharedBy; } });
 			renderNotebooks(d.notebooks || []);
 			renderTags(d.tags || []);
 			// Total after "All notes" (top-level notes + every notebook).
@@ -297,12 +300,20 @@
 			// attachments live at its own root, so sharing a sub-notebook would share
 			// notes whose images sit outside the share.
 			var topLevel = n.path.indexOf('/') < 0;
+			// A notebook shared WITH the user says by whom, and has no share control:
+			// notebooks are shared by their owner, not reshared.
+			var sharedBy = topLevel && n.sharedBy ? String(n.sharedBy) : '';
+			if (sharedBy) {
+				row.classList.add('notes-nb-received');
+				row.title = t('markdown_notes', 'Shared with you by {name}').replace('{name}', sharedBy);
+			}
 			row.innerHTML =
 				'<span class="notes-nb-toggle">' + (hasKids ? (expanded ? '▾' : '▸') : '') + '</span>' +
 				'<span class="icon-folder"></span>' +
 				'<span class="notes-nb-name">' + esc(n.name) + '</span>' +
 				'<span class="notes-nb-count">' + (n.count || 0) + '</span>' +
-				(topLevel ? '<button type="button" class="notes-nb-share" title="'
+				(sharedBy ? '<span class="notes-nb-by">' + SHARE_SVG + '<span>' + esc(sharedBy) + '</span></span>' : '') +
+				(topLevel && !sharedBy ? '<button type="button" class="notes-nb-share" title="'
 					+ esc(t('markdown_notes', 'Share this notebook')) + '">' + SHARE_SVG + '</button>' : '');
 			var shareBtn = row.querySelector('.notes-nb-share');
 			if (shareBtn) {
@@ -410,6 +421,12 @@
 		lbl.appendChild(m);
 		lbl.appendChild(document.createTextNode(' ' + ctx));
 		cEl.appendChild(lbl);
+		var owner = state.mode === 'notebook' && state.sharedBy ? state.sharedBy[String(state.notebook).split('/')[0]] : '';
+		if (owner) {
+			var by = el2('span', 'notes-list-sharedby');
+			by.textContent = t('markdown_notes', 'Shared with you by {name}').replace('{name}', owner);
+			cEl.appendChild(by);
+		}
 		// Bulk-actions menu for the selected notes (populated in updateSelectionUI).
 		var bulk = document.createElement('select');
 		bulk.id = 'notes-bulk-actions';

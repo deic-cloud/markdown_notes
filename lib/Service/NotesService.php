@@ -106,10 +106,56 @@ class NotesService {
 			if (self::isSpecialDir($name, $top)) {
 				continue;
 			}
-			$out[] = $this->notebookNode($node, $base === '' ? $name : $base . '/' . $name);
+			$nb = $this->notebookNode($node, $base === '' ? $name : $base . '/' . $name);
+			if ($top) {
+				// Shared WITH the user: the sidebar says by whom, and offers no share
+				// control (notebooks are shared by their owner, not reshared).
+				$nb['sharedBy'] = $this->sharedBy($node);
+			}
+			$out[] = $nb;
 		}
 		usort($out, static fn ($a, $b) => strcasecmp($a['name'], $b['name']));
 		return $out;
+	}
+
+	/**
+	 * Who shared this folder with the user, when it is the root of a share they
+	 * received — on this server (the sharer's display name) or from another one
+	 * (the owner's name there). Null for the user's own folders.
+	 */
+	private function sharedBy(Folder $folder): ?string {
+		try {
+			if (rtrim($folder->getMountPoint()->getMountPoint(), '/') !== rtrim($folder->getPath(), '/')) {
+				return null; // not a mount root: the user's own, or inside something else
+			}
+			$storage = $this->storageOf($folder, \OCP\Files\Storage\ISharedStorage::class);
+			if ($storage instanceof \OCP\Files\Storage\ISharedStorage) {
+				return $this->displayName($storage->getShare()->getShareOwner());
+			}
+			$remote = $this->storageOf($folder, 'OCA\\Files_Sharing\\External\\Storage');
+			if ($remote !== null && method_exists($remote, 'getRemoteUser')) {
+				return $this->displayName((string)$remote->getRemoteUser());
+			}
+		} catch (\Throwable) {
+		}
+		return null;
+	}
+
+	/** The storage of $node that is a $class, looking through storage wrappers. */
+	private function storageOf(Node $node, string $class): ?object {
+		$s = $node->getStorage();
+		if (!$s->instanceOfStorage($class)) {
+			return null;
+		}
+		while (!($s instanceof $class) && method_exists($s, 'getWrapperStorage')) {
+			$s = $s->getWrapperStorage();
+		}
+		return $s instanceof $class ? $s : null;
+	}
+
+	private function displayName(string $uid): string {
+		$user = $this->userManager->get($uid);
+		return ($user !== null && strcasecmp($user->getUID(), $uid) === 0) ? $user->getDisplayName() : $uid;
 	}
 
 	/**
