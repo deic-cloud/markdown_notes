@@ -122,6 +122,18 @@ move it in the browser. The name is suffixed if it would collide. A
 sees only what their index holds. Group shares are placed for each member.
 Everything is guarded: a failure is logged and never breaks the share itself.
 
+**Working in a notebook shared from another silo.** A note's text and footer
+tags travel in the file, but two things are stored per node, with the owner's
+copy: metadata field values (the overview columns) and system tags. Both follow
+the owner's node, whoever edits. Field values are read from and written to the
+owner's node through meta_data (write refused unless the share allows editing;
+the cell shows the reason). System tags are re-applied from the footer on the
+owner's node on every write to one of the owner's notes
+(`Listener/NoteWrittenListener`), so a tag added by a sharee — or by Joplin or
+WebDAV — reaches the owner's Files app. A template-named tag that does not yet
+exist as a system tag on the owner's node is created at the owner's next own
+write (core does not create tags in a request with no user).
+
 **Across silos** the same thing happens, decided on the recipient's node. A
 share to a user on another silo is a federated share: the listener there only
 marks the folder (`.notebook`, hidden, so it travels *with the data* — the

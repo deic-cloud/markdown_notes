@@ -60,7 +60,10 @@ class SystemTagSync {
 				if (!in_array($name, $promotable, true)) {
 					continue;
 				}
-				$desired[$this->ensureTag($name)] = true;
+				$id = $this->ensureTag($name);
+				if ($id !== null) {
+					$desired[$id] = true;
+				}
 			}
 			$current = $this->managedTagIds($fileid);
 			$toAssign = array_diff(array_keys($desired), $current);
@@ -80,7 +83,7 @@ class SystemTagSync {
 				unset(self::$inFlight[$fileid]);
 			}
 		} catch (\Throwable $e) {
-			$this->logger->warning('notes: footer→systemtags failed for ' . $fileid . ': ' . $e->getMessage(), ['app' => 'markdown_notes']);
+			$this->logger->warning('notes: footer→systemtags failed for ' . $fileid . ': ' . get_class($e) . ' ' . $e->getMessage(), ['app' => 'markdown_notes', 'exception' => $e]);
 		}
 	}
 
@@ -174,7 +177,7 @@ class SystemTagSync {
 	}
 
 	/** Public wrapper: ensure a user-visible+assignable system tag exists, return its id. */
-	public function ensureTagPublic(string $name): int {
+	public function ensureTagPublic(string $name): ?int {
 		return $this->ensureTag($name);
 	}
 
@@ -190,11 +193,21 @@ class SystemTagSync {
 		return $this->promotableCache[$uid];
 	}
 
-	private function ensureTag(string $name): int {
+	/**
+	 * The system tag's id, created if missing — or null when it is missing and
+	 * may not be created here: core refuses to create tags in a request with no
+	 * user (e.g. a sharee on another node writing the owner's note through the
+	 * share). The owner's next own write creates it.
+	 */
+	private function ensureTag(string $name): ?int {
 		try {
 			return (int)$this->tagManager->getTag($name, true, true)->getId();
 		} catch (TagNotFoundException $e) {
-			return (int)$this->tagManager->createTag($name, true, true)->getId();
+			try {
+				return (int)$this->tagManager->createTag($name, true, true)->getId();
+			} catch (\OCP\SystemTag\TagCreationForbiddenException) {
+				return null;
+			}
 		}
 	}
 

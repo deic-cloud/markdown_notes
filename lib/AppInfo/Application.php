@@ -23,6 +23,9 @@ class Application extends App implements IBootstrap {
 	public function register(IRegistrationContext $context): void {
 		// Tags changed via the Files sidebar / meta_data → mirror into the footer.
 		$context->registerEventListener(MapperEvent::class, SystemTagMapperListener::class);
+		// Any write to a note (a sharee on another node, Joplin, WebDAV) → footer tags
+		// re-applied to the owner's systemtags on this, the owner's, node.
+		$context->registerEventListener(\OCP\Files\Events\Node\NodeWrittenEvent::class, \OCA\MarkdownNotes\Listener\NoteWrittenListener::class);
 		// Files app: our EasyMDE source editor as the click action for .md files.
 		$context->registerEventListener(LoadAdditionalScriptsEvent::class, LoadFilesScriptsListener::class);
 		// A shared notebook belongs in the recipient's own notes folder — on this
