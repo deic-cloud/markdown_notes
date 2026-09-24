@@ -16,10 +16,15 @@ use Psr\Log\LoggerInterface;
  * Trusted timestamps for notes (RFC 3161).
  *
  * What is stamped is NOT the note file but a small manifest holding the note's
- * own SHA-256 plus the SHA-256 of every file in the notes tree the note links
- * to. A note says "the spectrum is in attachments/cell-07.csv"; a token over the
- * note bytes alone would say nothing about the spectrum. The manifest is plain
- * text, is kept next to the token, and is what verification compares against.
+ * own SHA-256 plus the SHA-256 of every file the note links to: its attachments
+ * in the notes tree, and files and folders elsewhere linked with "Link to a
+ * file or folder" (LinkedFiles; a folder counts as every file in it). A note
+ * says "the spectrum is in cell-07.csv"; a token over the note bytes alone would
+ * say nothing about the spectrum. The manifest is plain text, is kept next to
+ * the token, and is what verification compares against. Files in the notes tree
+ * are named by their path there; linked files by the link the note contains
+ * (plus `#<path>` inside a linked folder), so whoever verifies — the author or
+ * someone the notebook is shared with — reaches their own copy of the same file.
  *
  * Both files live in a VISIBLE `timestamps/` folder at the root of the top-level
  * notebook, like `attachments/`: the token has to be handed to other people and
@@ -38,6 +43,7 @@ class TimestampService {
 
 	public function __construct(
 		private NotesService    $notes,
+		private LinkedFiles     $linked,
 		private IClientService  $clients,
 		private IConfig         $config,
 		private ITempManager    $temp,
@@ -275,6 +281,7 @@ class TimestampService {
 		$files = array_values(array_unique(array_merge([$noteRel],
 			$this->notes->attachmentsOfNote($uid, $noteRel))));
 		sort($files, SORT_STRING);
+		$linked = $this->linked->filesOf($uid, (string)($note['body'] ?? ''));
 		$lines = [
 			self::MANIFEST_HEADER,
 			'note: ' . $noteRel,
@@ -289,6 +296,13 @@ class TimestampService {
 				throw new NotesException('Cannot timestamp: ' . $rel . ' could not be read.');
 			}
 			$lines[] = 'sha256 ' . $hash . '  ' . $rel;
+		}
+		foreach ($linked as $name => $file) {
+			$hash = $this->hashFile($file);
+			if ($hash === null) {
+				throw new NotesException('Cannot timestamp: ' . $file->getName() . ' (linked) could not be read.');
+			}
+			$lines[] = 'sha256 ' . $hash . '  ' . $name;
 		}
 		return implode("\n", $lines) . "\n";
 	}
@@ -329,6 +343,10 @@ class TimestampService {
 	}
 
 	private function hashOf(string $uid, string $rel): ?string {
+		if ($this->linked->isFileLink($rel)) {
+			$file = $this->linked->fileFor($uid, $rel);
+			return $file === null ? null : $this->hashFile($file);
+		}
 		try {
 			$node = $this->notes->getNotesFolder($uid)->get(trim($rel, '/'));
 			if (!($node instanceof File)) {
@@ -336,6 +354,22 @@ class TimestampService {
 			}
 			$content = $node->getContent();
 			return hash('sha256', $content);
+		} catch (\Throwable) {
+			return null;
+		}
+	}
+
+	/** SHA-256 of a file, streamed (linked data files can be large). */
+	private function hashFile(File $file): ?string {
+		try {
+			$fh = $file->fopen('r');
+			if ($fh === false) {
+				return null;
+			}
+			$ctx = hash_init('sha256');
+			hash_update_stream($ctx, $fh);
+			fclose($fh);
+			return hash_final($ctx);
 		} catch (\Throwable) {
 			return null;
 		}

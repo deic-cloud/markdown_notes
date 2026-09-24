@@ -13,8 +13,13 @@ Timestamp button is not shown.
 Not the note file. A note says "the spectrum is in
 `attachments/cell-07.csv`", so a token over the note's own bytes would say
 nothing about the spectrum. Instead the app builds a **manifest**: a small text
-file holding the note's SHA-256 plus the SHA-256 of every file inside the notes
-tree that the note links to. The manifest is what gets stamped, and it is kept.
+file holding the note's SHA-256 plus the SHA-256 of every file the note links
+to: its attachments inside the notes tree, and files and folders elsewhere that
+were linked with **Link to a file or folder** — a project's data, scripts and
+plots (`Service/LinkedFiles`). A linked folder counts as every file in it
+(hidden files skipped); stamping refuses beyond 2000 files or 20 GB, and says
+to link the files that matter instead. The manifest is what gets stamped, and
+it is kept.
 
 ```
 ScienceData note timestamp manifest v1
@@ -25,7 +30,16 @@ built: 2026-09-20T22:14:03+00:00
 
 sha256 6f1c…  Lab/Run 7.md
 sha256 b499…  Lab/attachments/cell-07.csv
+sha256 0c2e…  https://<master>/index.php/apps/files_sharding/f/alice/813/Runs/data#cell-07-cycles.csv
+sha256 9a41…  https://<master>/index.php/apps/files_sharding/f/alice/824/Runs/analysis/fade.py
 ```
+
+Files in the notes tree are named by their path there. Linked files are named by
+the link the note itself contains, plus `#<path inside it>` for a file in a
+linked folder: the same line then reaches each verifier's own copy — the author,
+or anyone the notebook and the linked folders are shared with (on a single
+server the links are Nextcloud's own `/index.php/f/<id>`). Someone the folders
+are not shared with sees those files reported as missing, not changed.
 
 Plain text on purpose: someone checking this in ten years should not need our
 code to see what was covered.

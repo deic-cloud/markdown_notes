@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\MarkdownNotes\Controller;
 
 use OCA\MarkdownNotes\Service\FileLinkService;
+use OCA\MarkdownNotes\Service\LinkedFiles;
 use OCA\MarkdownNotes\Service\MetaDataBridge;
 use OCA\MarkdownNotes\Service\NotesException;
 use OCA\MarkdownNotes\Service\NotesService;
@@ -26,6 +27,7 @@ class ApiController extends OCSController {
 		private MetaDataBridge $metaBridge,
 		private TimestampService $timestamps,
 		private FileLinkService $fileLinks,
+		private LinkedFiles $linkedFiles,
 		private IUserSession $userSession,
 	) {
 		parent::__construct($appName, $request);
@@ -319,6 +321,12 @@ class ApiController extends OCSController {
 	#[NoAdminRequired]
 	public function fileLink(string $path): DataResponse {
 		return $this->run(fn () => $this->fileLinks->linkFor($this->uid(), $path));
+	}
+
+	/** The user's own folders a notebook's notes link into — offered for sharing with the notebook. */
+	#[NoAdminRequired]
+	public function linkedFolders(string $notebook): DataResponse {
+		return $this->run(fn () => $this->linkedFiles->projectFolders($this->uid(), $notebook));
 	}
 
 	#[NoAdminRequired]

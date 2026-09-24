@@ -99,7 +99,14 @@ a notebook's attachments live at its own root, so sharing a sub-notebook would
 share notes whose images sit outside the share). It opens a small dialog over
 Nextcloud's own sharing API: who the notebook is shared with, a *can edit*
 toggle, *Remove*, and a search to add a user or a group. No endpoint of ours is
-involved.
+involved in the share itself.
+
+Sharing a notebook does not share the folders its notes link to (data, scripts,
+plots — see *Link to a file or folder*), so those links would be dead for the new
+reader. After someone is added, the dialog offers the user's own top-level
+folders the notebook's notes link into that are not yet shared with that
+person, read-only, each with a checkbox (`GET /api/v1/notebook/linked`,
+`LinkedFiles::projectFolders`); *Not now* leaves it at the notebook.
 
 One thing happens server-side (`Listener/ShareCreatedListener`): a shared
 **notebook** is placed in the recipient's own notes folder rather than left at

@@ -1136,6 +1136,15 @@
 		}, false, undefined, true, (OC.dialogs.FILEPICKER_TYPE_CHOOSE || 1), undefined, { allowDirectoryChooser: true });
 	}
 
+	// A manifest names a linked file by the note's link (…/f/<owner>/<id>/<path>,
+	// plus #<path> inside a linked folder); show the path, not the URL.
+	function stampedName(n) {
+		var m = /\/index\.php\/apps\/files_sharding\/f\/[^/]+\/\d+\/?([^#]*)(?:#(.*))?$/.exec(n);
+		if (!m) { return n; }
+		var parts = [m[1], m[2] || ''].filter(Boolean).join('/').split('/');
+		try { return parts.map(decodeURIComponent).join('/'); } catch (e) { return n; }
+	}
+
 	// ── Sharing a notebook ────────────────────────────────────────────────────
 	// Straight onto Nextcloud's own sharing API — a notebook is a folder. The app
 	// adds one thing on top (server side, ShareCreatedListener): the notebook is
@@ -1229,6 +1238,69 @@
 		}
 		refresh();
 
+		// Sharing a notebook does not share the project folders its notes link
+		// to (data, scripts, plots), so those links would be dead for the new
+		// reader. Offer them — read-only, each can be unticked — for whichever
+		// are not already shared with that person.
+		var offer = null;
+		function offerLinked(c) {
+			if (offer && offer.parentNode) { offer.parentNode.removeChild(offer); }
+			get('/notebook/linked', p('notebook', nb.path)).then(function (folders) {
+				return Promise.all((folders || []).map(function (f) {
+					return ocsShare('GET', '/shares?path=' + encodeURIComponent(f.path) + '&reshares=false')
+						.then(function (shares) {
+							return shares.some(function (sh) { return sh.share_with === c.id && sh.share_type === c.type; }) ? null : f;
+						}).catch(function () { return f; });
+				}));
+			}).then(function (todo) {
+				todo = (todo || []).filter(Boolean);
+				if (!todo.length) { return; }
+				var who = c.label.replace(/ \(.*\)$/, '');
+				offer = el2('div', 'notes-share-offer');
+				var q = el2('p', '');
+				q.textContent = t('markdown_notes', 'The notes link to files in these folders, which sharing the notebook does not include. Share them with {name} too, read-only?').replace('{name}', who);
+				offer.appendChild(q);
+				var boxes = todo.map(function (f) {
+					var lab = el2('label', 'notes-share-offer-item');
+					var cb = document.createElement('input');
+					cb.type = 'checkbox'; cb.checked = true;
+					lab.appendChild(cb);
+					lab.appendChild(document.createTextNode(' ' + f.name + '/  '));
+					var n = el2('span', 'notes-share-offer-count');
+					n.textContent = f.links === 1 ? t('markdown_notes', '1 link') : t('markdown_notes', '{n} links').replace('{n}', String(f.links));
+					lab.appendChild(n);
+					offer.appendChild(lab);
+					return { f: f, cb: cb };
+				});
+				var row = el2('div', 'notes-modal-actions');
+				var no = el2('button', ''); no.type = 'button'; no.textContent = t('markdown_notes', 'Not now');
+				var yes = el2('button', 'primary'); yes.type = 'button'; yes.textContent = t('markdown_notes', 'Share');
+				row.appendChild(no); row.appendChild(yes);
+				offer.appendChild(row);
+				no.addEventListener('click', function () { offer.parentNode.removeChild(offer); });
+				yes.addEventListener('click', function () {
+					yes.disabled = true; no.disabled = true;
+					var picked = boxes.filter(function (b) { return b.cb.checked; });
+					Promise.all(picked.map(function (b) {
+						var pr = new URLSearchParams();
+						pr.append('path', b.f.path);
+						pr.append('shareType', String(c.type));
+						pr.append('shareWith', c.id);
+						pr.append('permissions', String(PERM_READ));
+						return ocsShare('POST', '/shares', pr);
+					})).then(function () {
+						offer.innerHTML = '';
+						var done = el2('p', 'notes-share-offer-done');
+						done.textContent = picked.length
+							? t('markdown_notes', 'Shared with {name}, read-only.').replace('{name}', who)
+							: t('markdown_notes', 'Nothing shared.');
+						offer.appendChild(done);
+					}).catch(function (e) { yes.disabled = false; no.disabled = false; showError(e); });
+				});
+				modal.insertBefore(offer, actions);
+			}).catch(function () { /* the offer is a convenience; the share itself worked */ });
+		}
+
 		var searchTimer = null;
 		input.addEventListener('input', function () {
 			clearTimeout(searchTimer);
@@ -1264,6 +1336,7 @@
 								ocsShare('POST', '/shares', pr).then(function () {
 									input.value = ''; results.innerHTML = '';
 									refresh();
+									offerLinked(c);
 								}).catch(showError);
 							});
 							results.appendChild(b);
@@ -1516,8 +1589,8 @@
 				+ ' (' + (s.files || 0) + ' ' + t('markdown_notes', 'files covered') + ')';
 		} else if (s.matches === false) {
 			var parts = [];
-			if ((s.changed || []).length) { parts.push(t('markdown_notes', 'changed') + ': ' + s.changed.join(', ')); }
-			if ((s.missing || []).length) { parts.push(t('markdown_notes', 'missing') + ': ' + s.missing.join(', ')); }
+			if ((s.changed || []).length) { parts.push(t('markdown_notes', 'changed') + ': ' + s.changed.map(stampedName).join(', ')); }
+			if ((s.missing || []).length) { parts.push(t('markdown_notes', 'missing') + ': ' + s.missing.map(stampedName).join(', ')); }
 			content.className += ' notes-stamp-changed';
 			content.textContent = t('markdown_notes', 'Changed since then') + ' — ' + parts.join('; ');
 		}
