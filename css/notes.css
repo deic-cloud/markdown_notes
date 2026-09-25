@@ -256,6 +256,12 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 	background: var(--color-main-background); color: var(--color-main-text);
 }
 .EasyMDEContainer .editor-preview-side { border-color: var(--color-border); }
+/* Links: Nextcloud's base styles make <a> look like body text; in a rendered
+   note they must be recognisable. */
+.EasyMDEContainer .editor-preview a,
+.EasyMDEContainer .editor-preview-side a { color: var(--color-primary-element); text-decoration: underline; text-underline-offset: 2px; }
+.EasyMDEContainer .editor-preview a:hover,
+.EasyMDEContainer .editor-preview-side a:hover { text-decoration-thickness: 2px; }
 .EasyMDEContainer .editor-preview pre,
 .EasyMDEContainer .editor-preview code,
 .EasyMDEContainer .CodeMirror .cm-comment { background: var(--color-background-dark); }
