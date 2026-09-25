@@ -76,11 +76,22 @@ class LinkedFiles {
 		$node = null;
 		try {
 			$cluster = $this->cluster();
+			$path = (string)parse_url($url, PHP_URL_PATH);
 			if ($cluster !== null) {
 				$node = $cluster->nodeForLink($uid, $url);
-			} elseif (preg_match('#/index\.php/f/(\d+)$#', (string)parse_url($url, PHP_URL_PATH), $m)
-				&& $this->isThisServer($url)) {
+			} elseif (preg_match('#/index\.php/f/(\d+)$#', $path, $m) && $this->isThisServer($url)) {
 				$node = $this->rootFolder->getUserFolder($uid)->getFirstNodeById((int)$m[1]);
+			} elseif (preg_match('#/index\.php/apps/files_sharding/f/([^/]+)/(\d+)(?:/(.*))?$#', $path, $m)) {
+				// A cluster link read where files_sharding is not running: the
+				// user's own file (by id, then by the owner's path), or one shared
+				// with them on this server (by id). Enough to verify one's own
+				// timestamps; other people's copies need files_sharding.
+				$folder = $this->rootFolder->getUserFolder($uid);
+				$node = $folder->getFirstNodeById((int)$m[2]);
+				if ($node === null && strcasecmp(rawurldecode($m[1]), $uid) === 0 && ($m[3] ?? '') !== '') {
+					$rel = implode('/', array_map('rawurldecode', explode('/', trim($m[3], '/'))));
+					$node = $folder->nodeExists($rel) ? $folder->get($rel) : null;
+				}
 			}
 		} catch (\Throwable) {
 			$node = null;
