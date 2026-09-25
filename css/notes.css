@@ -414,3 +414,13 @@ button.notes-syncbox-icon:hover { background: var(--color-background-hover); col
 
 /* Note-list header of a notebook shared with the user. */
 .notes-list-sharedby { color: var(--color-text-maxcontrast); font-size: .9em; margin-inline-start: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Find in the note/file (Ctrl/Cmd+F inside the editor) */
+.EasyMDEContainer, .mdn-editor { position: relative; }
+.mdn-find { position: absolute; top: 50px; right: 16px; z-index: 20; display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--color-main-background); border: 1px solid var(--color-border-dark); border-radius: var(--border-radius-large); box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.mdn-find input[type=search] { width: 200px; margin: 0; min-height: 30px; }
+.mdn-find.mdn-find-miss input[type=search] { border-color: var(--color-error-text); }
+.mdn-find .mdn-find-count { min-width: 64px; font-size: .85em; color: var(--color-text-maxcontrast); text-align: center; white-space: nowrap; }
+.mdn-find button { min-width: 30px; min-height: 30px; width: auto; padding: 0 6px; margin: 0; }
+.mdn-find-hit { background: rgba(255, 200, 0, .35); border-radius: 2px; }
+.mdn-find-hit.mdn-find-current, .mdn-find-current { background: rgba(255, 140, 0, .75); outline: 1px solid rgba(200, 90, 0, .9); }

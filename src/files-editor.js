@@ -134,6 +134,102 @@ function uploadMedia(node, insert, report) {
 	input.click()
 }
 
+// ── Find in the note (Ctrl/⌘+F inside the editor) ────────────────────────
+// Nextcloud binds Ctrl+F to its own search; inside the editor it should
+// search the text being edited — all of it: CodeMirror draws only the
+// visible lines, so the browser's own find would miss the rest. Uses the
+// searchcursor addon bundled with EasyMDE. Elsewhere on the page Ctrl+F is
+// left alone.
+function installFind(cm, host, label) {
+	var bar = null, input = null, count = null, marks = [], last = null;
+	function clearMarks() { marks.forEach(function (m) { m.clear(); }); marks = []; }
+	function matches(q) {
+		var out = [];
+		if (!q) { return out; }
+		var c = cm.getSearchCursor(q, { line: 0, ch: 0 }, { caseFold: true });
+		while (c.findNext() && out.length < 5000) { out.push({ from: c.from(), to: c.to() }); }
+		return out;
+	}
+	function cmp(a, b) { return a.line - b.line || a.ch - b.ch; }
+	function go(back) {
+		var q = input.value;
+		clearMarks();
+		var all = matches(q);
+		all.forEach(function (m) { marks.push(cm.markText(m.from, m.to, { className: 'mdn-find-hit' })); });
+		if (!all.length) { count.textContent = q ? label.none : ''; bar.classList.toggle('mdn-find-miss', !!q); return; }
+		bar.classList.remove('mdn-find-miss');
+		var i = -1, k;
+		if (last) {
+			for (k = 0; k < all.length; k++) { if (cmp(all[k].from, last.from) === 0) { i = k; break; } }
+		}
+		if (i >= 0) {
+			i = back ? (i - 1 + all.length) % all.length : (i + 1) % all.length;
+		} else if (back) {
+			var from = cm.getCursor('from');
+			for (i = all.length - 1; i >= 0 && cmp(all[i].to, from) > 0; i--) { /* last match before the cursor */ }
+			if (i < 0) { i = all.length - 1; }
+		} else {
+			var to = cm.getCursor('from');
+			for (i = 0; i < all.length && cmp(all[i].from, to) < 0; i++) { /* first match from the cursor */ }
+			if (i >= all.length) { i = 0; }
+		}
+		last = all[i];
+		cm.setSelection(last.from, last.to);
+		marks.push(cm.markText(last.from, last.to, { className: 'mdn-find-current' }));
+		cm.scrollIntoView({ from: last.from, to: last.to }, 60);
+		count.textContent = label.of.replace('{n}', String(i + 1)).replace('{total}', String(all.length));
+	}
+	function open() {
+		if (!bar) {
+			bar = document.createElement('div');
+			bar.className = 'mdn-find';
+			input = document.createElement('input');
+			input.type = 'search';
+			input.placeholder = label.placeholder;
+			input.setAttribute('aria-label', label.placeholder);
+			count = document.createElement('span');
+			count.className = 'mdn-find-count';
+			var prev = document.createElement('button'); prev.type = 'button'; prev.textContent = '↑'; prev.title = label.prev;
+			var next = document.createElement('button'); next.type = 'button'; next.textContent = '↓'; next.title = label.next;
+			var x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.title = label.close;
+			bar.appendChild(input); bar.appendChild(count); bar.appendChild(prev); bar.appendChild(next); bar.appendChild(x);
+			input.addEventListener('input', function () { last = null; go(false); });
+			input.addEventListener('keydown', function (e) {
+				if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey); }
+				else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+			});
+			prev.addEventListener('click', function () { go(true); });
+			next.addEventListener('click', function () { go(false); });
+			x.addEventListener('click', close);
+			host.appendChild(bar);
+		}
+		var sel = cm.getSelection();
+		if (sel && sel.indexOf('\n') < 0) { input.value = sel; }
+		bar.style.display = '';
+		input.focus();
+		input.select();
+		last = null;
+		if (input.value) { go(false); }
+	}
+	function close() {
+		if (!bar) { return; }
+		clearMarks();
+		bar.style.display = 'none';
+		cm.focus();
+	}
+	// Window, capture phase: runs before Nextcloud's own Ctrl+F handler.
+	function onKey(e) {
+		if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')
+			&& (host.contains(document.activeElement) || cm.hasFocus())) {
+			e.preventDefault();
+			e.stopImmediatePropagation();
+			open();
+		}
+	}
+	window.addEventListener('keydown', onKey, true);
+	return { open: open, destroy: function () { window.removeEventListener('keydown', onKey, true); clearMarks(); if (bar) { bar.remove(); } } };
+}
+
 function openEditor(node) {
 	if (typeof window.EasyMDE !== 'function') {
 		window.OC?.dialogs?.alert?.(t(APP, 'The Markdown editor did not load. Please reload the page.'), t(APP, 'Markdown'))
@@ -143,6 +239,7 @@ function openEditor(node) {
 	let etag = ''
 	let dirty = false
 	let mde = null
+	let find = null
 
 	const overlay = el('div', { class: 'mdn-overlay', role: 'dialog', 'aria-label': node.basename })
 	const box = el('div', { class: 'mdn-editor' })
@@ -202,6 +299,7 @@ function openEditor(node) {
 	function close() {
 		if (dirty && !window.confirm(t(APP, 'You have unsaved changes. Close anyway?'))) return
 		document.removeEventListener('keydown', onKey, true)
+		if (find) { find.destroy(); find = null }
 		if (mde) { try { mde.toTextArea() } catch (e) { /* ignore */ } }
 		overlay.remove()
 	}
@@ -242,6 +340,11 @@ function openEditor(node) {
 			] : false,
 		})
 		if (!canWrite) mde.codemirror.setOption('readOnly', true)
+		find = installFind(mde.codemirror, box, {
+			placeholder: t(APP, 'Find in this file'), none: t(APP, 'No matches'),
+			of: t(APP, '{n} of {total}'), prev: t(APP, 'Previous (Shift+Enter)'),
+			next: t(APP, 'Next (Enter)'), close: t(APP, 'Close (Esc)'),
+		})
 		mde.codemirror.on('change', () => { if (!dirty) setDirty(true) })
 		setDirty(false)
 		msg.textContent = ''
