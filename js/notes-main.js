@@ -2067,6 +2067,21 @@
 			}
 		});
 		el('notes-back').addEventListener('click', backToList);
+		// Full width for the note: hide the notebooks and the list (and back).
+		// Remembered per browser; the page works the same without storage.
+		var WIDE_KEY = 'markdown_notes.wide';
+		var setWide = function (on) {
+			document.body.classList.toggle('notes-wide', on);
+			var b = el('notes-wide');
+			b.setAttribute('aria-pressed', on ? 'true' : 'false');
+			var label = on ? t('markdown_notes', 'Show the notebooks and the list of notes')
+				: t('markdown_notes', 'Hide the notebooks and the list of notes');
+			b.title = label; b.setAttribute('aria-label', label);
+			try { window.localStorage.setItem(WIDE_KEY, on ? '1' : '0'); } catch (e) { /* no storage */ }
+			if (mde) { setTimeout(function () { mde.codemirror.refresh(); }, 0); }
+		};
+		el('notes-wide').addEventListener('click', function () { setWide(!document.body.classList.contains('notes-wide')); });
+		try { if (window.localStorage.getItem(WIDE_KEY) === '1') { setWide(true); } } catch (e) { /* no storage */ }
 		el('notes-delete').addEventListener('click', deleteNote);
 		el('notes-history').addEventListener('click', openHistory);
 		el('notes-timestamp').addEventListener('click', openTimestamps);

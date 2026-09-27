@@ -60,6 +60,7 @@
 		<div id="notes-editor-empty" class="notes-empty"><?php p($l->t('Select or create a note')); ?></div>
 		<div id="notes-editor-wrap" style="display:none;">
 			<div id="notes-editor-head">
+				<button id="notes-wide" type="button" aria-pressed="false" title="<?php p($l->t('Hide the notebooks and the list of notes')); ?>" aria-label="<?php p($l->t('Hide the notebooks and the list of notes')); ?>"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5h2v14H3zm4 0h2v14H7zm4 6h6.17l-2.59-2.59L16 7l5 5-5 5-1.41-1.41L17.17 13H11z"/></svg></button>
 				<button id="notes-back" type="button" title="<?php p($l->t('Back to list')); ?>">← <?php p($l->t('List')); ?></button>
 				<input type="text" id="notes-title" placeholder="<?php p($l->t('Title')); ?>" />
 				<button id="notes-save" type="button" class="primary"><?php p($l->t('Save')); ?></button>
