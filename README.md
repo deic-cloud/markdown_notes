@@ -64,6 +64,7 @@ sync that the web lacks.
 * **Tags** are colour-matched to Nextcloud system tags and kept in sync both ways
   (see below). Add tags from the editor (with autocomplete over the full tag
   vocabulary) or by dragging notes onto a tag.
+* **Rename a notebook** with the pencil next to its share control (on hover) or by double-clicking its name; Enter or leaving the field saves, Escape cancels. Links inside the notebook (its `attachments/`) follow it, and its timestamps stay found and checkable: stamps are matched and manifests read relative to the notebook they are in now. Notebooks shared with you are not renamed here. (Renaming a single note still loses sight of its stamps.)
 * **Drag & drop**: drag notes onto a notebook to move them, or onto a tag to assign
   it; select multiple with the checkboxes and drag the whole set. Drag a notebook
   onto another to nest it, or onto the **Notebooks** header (or **All notes**) to

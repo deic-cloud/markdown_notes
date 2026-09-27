@@ -172,10 +172,20 @@ class TimestampService {
 			return [];
 		}
 		$prefix = $this->slug($noteRel) . '-';
+		// A stamp's file name starts with the note's path when it was stamped,
+		// notebook included. The timestamps folder belongs to the top-level
+		// notebook, so after that notebook was renamed its stamps are still here,
+		// under the OLD name: match on the path below the notebook as well.
+		$tail = $this->slugBelowNotebook($noteRel) . '-';
 		$out = [];
 		foreach ($dir->getDirectoryListing() as $node) {
 			$name = $node->getName();
-			if (!($node instanceof File) || !str_starts_with($name, $prefix) || !str_ends_with($name, '.tsr')) {
+			if (!($node instanceof File) || !str_ends_with($name, '.tsr')) {
+				continue;
+			}
+			$sep = strpos($name, '__');
+			if (!str_starts_with($name, $prefix)
+				&& !($sep !== false && str_starts_with(substr($name, $sep), $tail))) {
 				continue;
 			}
 			$base = substr($name, 0, -4);
@@ -315,7 +325,15 @@ class TimestampService {
 	 *
 	 * @return array{matches: bool, changed: list<string>, missing: list<string>, files: int}
 	 */
-	private function checkManifest(string $uid, string $manifest): array {
+	private function checkManifest(string $uid, string $manifest, string $noteRel = ''): array {
+		// The notebook may have been renamed (or moved) since: the manifest names
+		// notes-tree files by their path THEN. Read them below the notebook the
+		// note is in now — the stamp lives in that notebook's timestamps folder.
+		$from = $to = '';
+		if ($noteRel !== '' && preg_match('/^note: (.+)$/m', $manifest, $m)) {
+			$from = explode('/', trim($m[1], '/'))[0];
+			$to = explode('/', trim($noteRel, '/'))[0];
+		}
 		$changed = [];
 		$missing = [];
 		$count = 0;
@@ -331,7 +349,9 @@ class TimestampService {
 			$count++;
 			$want = substr($rest, 0, $sep);
 			$rel  = substr($rest, $sep + 2);
-			$have = $this->hashOf($uid, $rel);
+			$here = ($from !== '' && $from !== $to && str_starts_with($rel, $from . '/'))
+				? $to . substr($rel, strlen($from)) : $rel;
+			$have = $this->hashOf($uid, $here);
 			if ($have === null) {
 				$missing[] = $rel;
 			} elseif (!hash_equals($want, $have)) {
@@ -411,7 +431,7 @@ class TimestampService {
 			return $record;
 		}
 		$content = $manifest->getContent();
-		$check = $this->checkManifest($uid, $content);
+		$check = $this->checkManifest($uid, $content, $noteRel);
 		$record['matches'] = $check['matches'];
 		$record['changed'] = $check['changed'];
 		$record['missing'] = $check['missing'];
@@ -608,6 +628,13 @@ class TimestampService {
 	}
 
 	/** A file name that is unique per note inside one notebook and still readable. */
+	/** The slug of the note's path below its top-level notebook, with the leading "__". */
+	private function slugBelowNotebook(string $noteRel): string {
+		$full = $this->slug($noteRel);
+		$sep = strpos($full, '__');
+		return $sep === false ? '__' . $full : substr($full, $sep);
+	}
+
 	private function slug(string $noteRel): string {
 		$rel = trim($noteRel, '/');
 		if (str_ends_with($rel, '.md')) {

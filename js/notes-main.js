@@ -313,8 +313,15 @@
 				'<span class="notes-nb-name">' + esc(n.name) + '</span>' +
 				'<span class="notes-nb-count">' + (n.count || 0) + '</span>' +
 				(sharedBy ? '<span class="notes-nb-by">' + SHARE_SVG + '<span>' + esc(sharedBy) + '</span></span>' : '') +
+				(!sharedBy ? '<button type="button" class="notes-nb-rename" title="'
+					+ esc(t('markdown_notes', 'Rename notebook')) + '">' + PENCIL_NB_SVG + '</button>' : '') +
 				(topLevel && !sharedBy ? '<button type="button" class="notes-nb-share" title="'
 					+ esc(t('markdown_notes', 'Share this notebook')) + '">' + SHARE_SVG + '</button>' : '');
+			var renameBtn = row.querySelector('.notes-nb-rename');
+			if (renameBtn) {
+				renameBtn.addEventListener('click', function (e) { e.stopPropagation(); startRenameNotebook(n, row); });
+				row.querySelector('.notes-nb-name').addEventListener('dblclick', function (e) { e.stopPropagation(); startRenameNotebook(n, row); });
+			}
 			var shareBtn = row.querySelector('.notes-nb-share');
 			if (shareBtn) {
 				shareBtn.addEventListener('click', function (e) {
@@ -1947,6 +1954,60 @@
 		elem.addEventListener('dragleave', function () { elem.classList.remove('notes-drop-target'); });
 		elem.addEventListener('drop', function (e) { e.preventDefault(); e.stopPropagation(); elem.classList.remove('notes-drop-target'); onDrop(); });
 	}
+	// Rename a notebook in place: the name becomes an input; Enter or leaving the
+	// field saves, Escape cancels. Paths held in the page (open notebook, open
+	// note, expanded rows) follow the rename.
+	var PENCIL_NB_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25Z"/></svg>';
+	function startRenameNotebook(n, row) {
+		var nameEl = row.querySelector('.notes-nb-name');
+		if (!nameEl || row.querySelector('.notes-nb-rename-input')) { return; }
+		var input = document.createElement('input');
+		input.type = 'text';
+		input.className = 'notes-nb-rename-input';
+		input.value = n.name;
+		input.setAttribute('aria-label', t('markdown_notes', 'Notebook name'));
+		nameEl.style.display = 'none';
+		nameEl.parentNode.insertBefore(input, nameEl);
+		row.draggable = false;
+		var done = false;
+		function finish(save) {
+			if (done) { return; }
+			done = true;
+			var name = input.value.trim();
+			input.remove();
+			nameEl.style.display = '';
+			row.draggable = true;
+			if (!save || name === '' || name === n.name) { return; }
+			if (name.indexOf('/') >= 0 || name.charAt(0) === '.') {
+				showError(t('markdown_notes', 'A notebook name cannot contain "/" or start with "."'));
+				return;
+			}
+			var parent = n.path.indexOf('/') >= 0 ? n.path.slice(0, n.path.lastIndexOf('/')) : '';
+			var target = parent ? parent + '/' + name : name;
+			post('/rename', p('path', n.path, 'target', target)).then(function () {
+				var from = n.path, re = function (pth) {
+					return pth === from ? target : (pth && pth.indexOf(from + '/') === 0 ? target + pth.slice(from.length) : pth);
+				};
+				state.notebook = re(state.notebook);
+				if (state.notePath) { state.notePath = re(state.notePath); }
+				var ex = {};
+				Object.keys(state.nbExpanded).forEach(function (k) { ex[re(k)] = state.nbExpanded[k]; });
+				state.nbExpanded = ex;
+				state.nbSelected = state.nbSelected.map(re);
+				return refreshAfterChange();
+			}).catch(showError);
+		}
+		input.addEventListener('keydown', function (e) {
+			e.stopPropagation();
+			if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+			else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+		});
+		input.addEventListener('blur', function () { finish(true); });
+		input.addEventListener('click', function (e) { e.stopPropagation(); });
+		input.focus();
+		input.select();
+	}
+
 	// Move a notebook (and its notes) into another notebook (or the root).
 	function dropMoveNotebook(nbPath, targetParent) {
 		// Can't move a notebook into itself or one of its own descendants.

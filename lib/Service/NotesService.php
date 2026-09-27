@@ -229,6 +229,16 @@ class NotesService {
 		$folder = $this->notesFolder($uid);
 		$rel = trim($rel, '/');
 		$targetRel = trim($targetRel, '/');
+		$newName = basename($targetRel);
+		if ($targetRel === '' || $newName === '' || $newName[0] === '.' || trim($newName) !== $newName) {
+			throw new NotesException('Not a valid name.');
+		}
+		if ($targetRel !== $rel && $folder->nodeExists($targetRel)) {
+			throw new NotesException('Something with that name already exists here.');
+		}
+		if ($node instanceof Folder && self::isSpecialDir($newName, !str_contains($targetRel, '/'))) {
+			throw new NotesException('That name is reserved for the notebook\'s own folders.');
+		}
 		$isFolder = $node instanceof Folder;
 		$node->move($folder->getPath() . '/' . $targetRel);
 		$this->repathIndex($uid, $rel, $targetRel, $bump);
@@ -695,14 +705,16 @@ class NotesService {
 			}
 			if (substr($name, -3) === '.md') {
 				$oldPath = $oldBase . substr($childRel, strlen($newBase));
-				$this->rebaseNoteFile($node, $oldPath, $childRel);
+				// The whole tree moved: links to things inside it move along.
+				$this->rebaseNoteFile($node, $oldPath, $childRel, false, $oldBase, $newBase);
 			}
 		}
 	}
 
-	private function rebaseNoteFile(Node $file, string $oldRel, string $newRel, bool $bumpTime = false): void {
+	private function rebaseNoteFile(Node $file, string $oldRel, string $newRel, bool $bumpTime = false,
+		string $treeOld = '', string $treeNew = ''): void {
 		$parsed = NoteFormat::parse($this->readContent($file));
-		$newBody = $this->rebaseRelativeLinks($oldRel, $newRel, $parsed['body']);
+		$newBody = $this->rebaseRelativeLinks($oldRel, $newRel, $parsed['body'], $treeOld, $treeNew);
 		$meta = $parsed['meta'];
 		$changed = $newBody !== $parsed['body'];
 		if ($bumpTime) {
@@ -714,11 +726,16 @@ class NotesService {
 		}
 	}
 
-	/** Re-express each relative markdown link so it still points at the same target after a move. */
-	private function rebaseRelativeLinks(string $oldRel, string $newRel, string $body): string {
+	/**
+	 * Re-express each relative markdown link so it still points at the same target
+	 * after a move. When a whole notebook ($treeOld → $treeNew) moved, a target
+	 * inside it moved too — its own attachments/, a sibling note — so such links
+	 * follow the notebook instead of pointing back to where it was.
+	 */
+	private function rebaseRelativeLinks(string $oldRel, string $newRel, string $body, string $treeOld = '', string $treeNew = ''): string {
 		$oldDir = $this->dirOf($oldRel);
 		$newDir = $this->dirOf($newRel);
-		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function (array $m) use ($oldDir, $newDir): string {
+		return (string)preg_replace_callback('/(!?\[[^\]]*\]\()([^)\s]+)(\s+"[^"]*")?(\))/', function (array $m) use ($oldDir, $newDir, $treeOld, $treeNew): string {
 			$link = $m[2];
 			if ($link === '' || $link[0] === '/' || $link[0] === '#' || str_starts_with($link, ':/')
 				|| preg_match('#^[a-z][a-z0-9+.-]*:#i', $link)) {
@@ -727,6 +744,9 @@ class NotesService {
 			$target = $this->normalizeRel(($oldDir === '' ? '' : $oldDir . '/') . rawurldecode($link));
 			if ($target === null) {
 				return $m[0];
+			}
+			if ($treeOld !== '' && ($target === $treeOld || str_starts_with($target, $treeOld . '/'))) {
+				$target = $treeNew . substr($target, strlen($treeOld));
 			}
 			$newLink = implode('/', array_map('rawurlencode', explode('/', $this->makeRelative($newDir, $target))));
 			return $m[1] . $newLink . ($m[3] ?? '') . $m[4];
