@@ -232,11 +232,20 @@ function installFind(cm, host, label) {
 	return { open: open, destroy: function () { window.removeEventListener('keydown', onKey, true); clearMarks(); if (bar) { bar.remove(); } } };
 }
 
+// One editor at a time. The Files app runs a default action once per click, so a
+// double-click opened the editor twice on top of each other (both saved on Ctrl+S,
+// and closing one revealed the other).
+let openEditorNode = null
+
 function openEditor(node) {
+	if (openEditorNode !== null) {
+		return
+	}
 	if (typeof window.EasyMDE !== 'function') {
 		window.OC?.dialogs?.alert?.(t(APP, 'The Markdown editor did not load. Please reload the page.'), t(APP, 'Markdown'))
 		return
 	}
+	openEditorNode = node
 	const canWrite = (node.permissions & Permission.UPDATE) !== 0
 	let etag = ''
 	let dirty = false
@@ -319,6 +328,7 @@ function openEditor(node) {
 		if (find) { find.destroy(); find = null }
 		if (mde) { try { mde.toTextArea() } catch (e) { /* ignore */ } }
 		overlay.remove()
+		openEditorNode = null
 	}
 
 	function onKey(ev) {
