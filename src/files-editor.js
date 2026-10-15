@@ -277,8 +277,23 @@ function openEditor(node) {
 		msg.classList.toggle('mdn-error', !!isError)
 	}
 
+	// One save at a time: a repeated Ctrl+S (key repeat) or a click during a save
+	// fired a second PUT in the same second, and the two then locked each other out
+	// (423 on both). A save requested while one runs is run once it has finished.
+	let saving = false
+	let saveAgain = false
 	async function doSave() {
 		if (!canWrite || !dirty) return
+		if (saving) { saveAgain = true; return }
+		saving = true
+		try {
+			await saveNow()
+		} finally {
+			saving = false
+			if (saveAgain) { saveAgain = false; doSave() }
+		}
+	}
+	async function saveNow() {
 		msg.textContent = t(APP, 'Saving…')
 		msg.classList.remove('mdn-error')
 		try {
