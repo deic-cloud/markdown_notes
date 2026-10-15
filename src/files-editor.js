@@ -39,7 +39,9 @@ function davHeaders(extra) {
 }
 
 async function load(node) {
-	const r = await fetch(node.source, { headers: davHeaders(), credentials: 'same-origin' })
+	// cache: 'no-store' — WebDAV file GETs carry Last-Modified and no Cache-Control, so
+	// browsers may serve a stale copy (and its old ETag) from the HTTP cache on reopen.
+	const r = await fetch(node.source, { headers: davHeaders(), credentials: 'same-origin', cache: 'no-store' })
 	if (!r.ok) throw new Error(t(APP, 'Could not read the file') + ' (' + r.status + ')')
 	return { text: await r.text(), etag: r.headers.get('ETag') || '' }
 }
